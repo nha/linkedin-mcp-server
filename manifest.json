@@ -109,7 +109,11 @@
     },
     {
       "name": "send_message",
-      "description": "Compose and send a new single-line message without C0 or DEL control characters (including CR, LF, and tab) to a LinkedIn user with explicit confirmation and optional profile URN support; profile-based targeting may create a separate DM instead of replying in an existing thread, and when no normal Message action is exposed, use connect_with_person and retry after acceptance"
+      "description": "Compose and send a new message to a LinkedIn user with explicit confirmation and optional profile URN support; line breaks are typed as paragraph breaks, other C0 and DEL control characters are rejected, preview=true with confirm_send=false types the text and reports what the editor holds without sending; profile-based targeting may create a separate DM instead of replying in an existing thread (use reply_in_thread for that), and when no normal Message action is exposed, use connect_with_person and retry after acceptance"
+    },
+    {
+      "name": "reply_in_thread",
+      "description": "Reply inside an existing LinkedIn messaging thread by thread ID (from get_inbox, search_conversations or get_conversation), including recruiter InMail threads, with explicit confirmation; the page must stay on exactly that thread route, the single participant profile is returned as recipient_profile_path for cross-checking and group conversations fail closed; line breaks are typed as paragraph breaks, preview=true with confirm_send=false reports the editor text without sending"
     },
     {
       "name": "get_feed",

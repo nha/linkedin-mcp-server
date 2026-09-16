@@ -248,6 +248,7 @@ class LinkedInExtractor:
         *,
         confirm_send: bool,
         profile_urn: str | None = None,
+        preview: bool = False,
     ) -> dict[str, Any]:
         """Compose and send a new message with explicit confirmation gating."""
         return await self._message_sender.send_message(
@@ -255,4 +256,21 @@ class LinkedInExtractor:
             message,
             confirm_send=confirm_send,
             profile_urn=profile_urn,
+            preview=preview,
+        )
+
+    async def reply_in_thread(
+        self,
+        thread_id: str,
+        message: str,
+        *,
+        confirm_send: bool,
+        preview: bool = False,
+    ) -> dict[str, Any]:
+        """Reply inside an existing messaging thread with confirmation gating."""
+        return await self._message_sender.reply_in_thread(
+            thread_id,
+            message,
+            confirm_send=confirm_send,
+            preview=preview,
         )

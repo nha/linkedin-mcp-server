@@ -1,0 +1,198 @@
+{
+  "call": {
+    "arguments": {
+      "confirm_send": false,
+      "message": "First line\n\nSecond paragraph",
+      "preview": true,
+      "thread_id": "2-policy-thread=="
+    },
+    "method": "reply_in_thread"
+  },
+  "events": [
+    {
+      "call": "reply_in_thread",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "extra": {
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "requested_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "section": "message",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "reply_in_thread",
+      "description": "goto https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "extra": {
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "evaluate",
+      "operation": "thread_participant",
+      "program_digest": "2dcdf9813466",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "boundary.rate_limit",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "wait_for_selector",
+      "operation": "main",
+      "section": "message",
+      "selector": "main",
+      "state": "visible",
+      "timeout_ms": null
+    },
+    {
+      "arg": {
+        "profilePath": "/in/ada-lovelace/",
+        "profileUrn": null
+      },
+      "call": "reply_in_thread",
+      "kind": "wait_for_function",
+      "operation": "message_composer_ready",
+      "program_digest": "40729ddedf4a",
+      "section": "message",
+      "timeout_ms": null
+    },
+    {
+      "arg": {
+        "profilePath": "/in/ada-lovelace/",
+        "profileUrn": null
+      },
+      "call": "reply_in_thread",
+      "kind": "evaluate",
+      "operation": "message_composer_state",
+      "program_digest": "8d3b124562f3",
+      "section": "message"
+    },
+    {
+      "arg": {
+        "expectedRoute": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "target": {
+          "profilePath": "/in/ada-lovelace/",
+          "profileUrn": null
+        }
+      },
+      "call": "reply_in_thread",
+      "kind": "evaluate_handle",
+      "operation": "message_composer_owner",
+      "program_digest": "46a2181c49e7",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "handle": "handle-1",
+      "kind": "handle.as_element",
+      "present": true,
+      "section": "message"
+    },
+    {
+      "arg": {
+        "message": "First line\n\nSecond paragraph",
+        "profilePath": "/in/ada-lovelace/",
+        "profileUrn": null
+      },
+      "call": "reply_in_thread",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_write",
+      "program_digest": "5907a5d32316",
+      "section": "message"
+    },
+    {
+      "arg": {
+        "message": "First line\n\nSecond paragraph",
+        "profilePath": "/in/ada-lovelace/",
+        "profileUrn": null
+      },
+      "call": "reply_in_thread",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_preview",
+      "program_digest": "d3782a9ff3d7",
+      "section": "message"
+    },
+    {
+      "arg": {
+        "message": "First line\n\nSecond paragraph"
+      },
+      "call": "reply_in_thread",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_cleanup",
+      "program_digest": "de5d4adfc6fc",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_dispose",
+      "program_digest": "ec7c454e506b",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "handle": "handle-1",
+      "kind": "handle.dispose",
+      "section": "message"
+    }
+  ],
+  "result": {
+    "message": "Set confirm_send=true to send the message.",
+    "preview": "First line\n\nSecond paragraph",
+    "recipient_name": "Ada Lovelace",
+    "recipient_profile_path": "/in/ada-lovelace/",
+    "recipient_selected": true,
+    "retry_safe": true,
+    "sent": false,
+    "status": "confirmation_required",
+    "url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/"
+  },
+  "scenario": "reply_in_thread__dry_run_preview",
+  "schema_version": 1
+}

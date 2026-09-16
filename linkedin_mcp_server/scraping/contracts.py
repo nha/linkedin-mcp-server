@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from linkedin_mcp_server.scraping.identifiers import (
@@ -92,24 +93,68 @@ def message_action_result(
     }
 
 
+MESSAGE_THREAD_ID_RE = re.compile(r"^[A-Za-z0-9_=-]+$")
+
+
+def normalize_message_text(message: str) -> str:
+    """Return the message with platform line endings folded to ``\n``."""
+    return message.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def invalid_message_reason(message: str) -> str | None:
+    """Explain why a message may not reach the composer, or None if it may.
+
+    Line breaks are allowed: the browser side types each one as a paragraph
+    break, the way Shift+Enter does. CR and CRLF count as line breaks because
+    the sender folds them to LF. Every other C0 control and DEL is still
+    refused before a session is acquired so no control input can reach the
+    contenteditable surface.
+    """
+    message = normalize_message_text(message)
+    if not message.strip():
+        return "Message must contain non-whitespace characters."
+    if any(
+        (ord(character) < 32 and character != "\n") or ord(character) == 127
+        for character in message
+    ):
+        return "Message must not contain control characters other than line breaks."
+    return None
+
+
 def refuse_an_invalid_message(
     linkedin_username: str, message: str
 ) -> dict[str, Any] | None:
     """Return the shared browser-free refusal for an unsafe message."""
-    reason = None
-    if not message.strip():
-        reason = "Message must contain non-whitespace characters."
-    elif any(ord(character) < 32 or ord(character) == 127 for character in message):
-        # Keep the browser-side insertion contract to plain message text.
-        # Reject every C0 control and DEL before a session is acquired so no
-        # control input can reach the contenteditable surface.
-        reason = "Message must not contain control characters or line breaks."
+    reason = invalid_message_reason(message)
     if reason is None:
         return None
     return message_action_result(
         person_profile_url(normalize_person_identifier(linkedin_username), "/"),
         "invalid_message",
         reason,
+    )
+
+
+def message_thread_url(thread_id: str) -> str:
+    return f"https://www.linkedin.com/messaging/thread/{thread_id}/"
+
+
+def refuse_an_invalid_thread_reply(
+    thread_id: str, message: str
+) -> dict[str, Any] | None:
+    """Return the browser-free refusal for an unsafe thread reply, if any."""
+    if not MESSAGE_THREAD_ID_RE.fullmatch(thread_id or ""):
+        return message_action_result(
+            "https://www.linkedin.com/messaging/",
+            "invalid_thread",
+            "thread_id must be a LinkedIn messaging thread ID "
+            "(letters, digits, '_', '-' and '=').",
+        )
+    reason = invalid_message_reason(message)
+    if reason is None:
+        return None
+    return message_action_result(
+        message_thread_url(thread_id), "invalid_message", reason
     )
 
 

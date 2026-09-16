@@ -59,6 +59,7 @@ TOOL_DELEGATES = {
     "search_people": "search_people",
     "search_posts": "search_posts",
     "send_message": "send_message",
+    "reply_in_thread": "reply_in_thread",
 }
 
 
@@ -119,9 +120,9 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     tools = await create_mcp_server().list_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert len(tool_names) == 19
+    assert len(tool_names) == 20
     assert tool_names == {*TOOL_DELEGATES, "close_session"}
-    assert len(TOOL_DELEGATES) == 18
+    assert len(TOOL_DELEGATES) == 19
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
     assert "close_session" not in TOOL_DELEGATES
 
@@ -438,6 +439,7 @@ async def test_facade_send_message_forwards_every_argument(mock_page):
             "Message text",
             confirm_send=False,
             profile_urn="ACoAAB",
+            preview=True,
         )
 
     assert result is expected
@@ -446,6 +448,36 @@ async def test_facade_send_message_forwards_every_argument(mock_page):
         "Message text",
         confirm_send=False,
         profile_urn="ACoAAB",
+        preview=True,
+    )
+
+
+async def test_facade_reply_in_thread_forwards_every_argument(mock_page):
+    extractor = LinkedInExtractor(cast(Page, mock_page))
+    expected = {
+        "url": "https://www.linkedin.com/messaging/thread/2-abc==/",
+        "status": "confirmation_required",
+    }
+
+    with patch.object(
+        MessageSender,
+        "reply_in_thread",
+        new_callable=AsyncMock,
+        return_value=expected,
+    ) as reply_in_thread:
+        result = await extractor.reply_in_thread(
+            "2-abc==",
+            "First\n\nSecond",
+            confirm_send=False,
+            preview=True,
+        )
+
+    assert result is expected
+    reply_in_thread.assert_awaited_once_with(
+        "2-abc==",
+        "First\n\nSecond",
+        confirm_send=False,
+        preview=True,
     )
 
 
@@ -497,7 +529,7 @@ def test_facade_methods_are_exactly_the_frozen_coroutine_surface():
     }
 
     assert actual == expected
-    assert len(TOOL_FACADE_METHODS) == 18
+    assert len(TOOL_FACADE_METHODS) == 19
     assert len(COMPATIBILITY_METHODS) == 2
 
 

@@ -125,7 +125,52 @@ _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
 
+_THREAD_PARTICIPANT_JS = r"""() => {
+    // The participant of an open conversation: the one profile linked from the
+    // page outside the message history and outside the composer form. Several
+    // links to the same profile are fine; two different profiles are not.
+    const visible = element => {
+        const visibility = element && getComputedStyle(element).visibility;
+        return !!(
+            element &&
+            visibility !== 'hidden' &&
+            visibility !== 'collapse' &&
+            (element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+        );
+    };
+    const root = document.querySelector('main') || document.body;
+    const anchors = Array.from(root.querySelectorAll('a[href*="/in/"]')).filter(
+        anchor =>
+            visible(anchor) &&
+            !anchor.closest('[data-view-name="message-list-item"]') &&
+            !anchor.closest('form')
+    );
+    const paths = new Map();
+    for (const anchor of anchors) {
+        let url;
+        try {
+            url = new URL(anchor.getAttribute('href') || anchor.href || '', window.location.href);
+        } catch {
+            continue;
+        }
+        const match = /^\/in\/([^/?#]+)(?:\/.*)?$/.exec(url.pathname);
+        if (!match) continue;
+        const path = `/in/${match[1]}/`;
+        const name = (anchor.innerText || '').replace(/\s+/g, ' ').trim();
+        if (!paths.has(path) || (!paths.get(path) && name)) paths.set(path, name);
+    }
+    if (paths.size !== 1) return {status: paths.size === 0 ? 'none' : 'ambiguous'};
+    const [path, name] = paths.entries().next().value;
+    return {status: 'resolved', path, name: name || null};
+}"""
+
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
+    // Text is compared after collapsing whitespace: a message with line breaks
+    // renders as separate blocks in the editor and in the sent bubble, so the
+    // exact innerText is not stable even though the words are.
+    const sameText = (left, right) =>
+        (left || '').replace(/\s+/g, ' ').trim() ===
+        (right || '').replace(/\s+/g, ' ').trim();
     const visible = element => {
         const visibility = element && getComputedStyle(element).visibility;
         return !!(
@@ -186,7 +231,9 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
                 ...url.searchParams.getAll('recipient'),
                 ...url.searchParams.getAll('profileUrn'),
             ];
-            return values.every(value => normalizeUrn(value) === target.profileUrn)
+            return values.every(value =>
+                target.profileUrn === null || normalizeUrn(value) === target.profileUrn
+            )
                 ? url.href
                 : null;
         } catch {
@@ -240,7 +287,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
         );
         if (
             paths.some(path => path !== target.profilePath) ||
-            urns.some(urn => urn !== target.profileUrn)
+            urns.some(urn => target.profileUrn !== null && urn !== target.profileUrn)
         ) {
             return {status: 'recipient_mismatch'};
         }
@@ -335,7 +382,7 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
             !arg.owner.contains(pinned.editor) ||
             document.activeElement !== pinned.editor ||
             pinned.ownedMessage !== arg.expected ||
-            (pinned.editor.innerText || pinned.editor.textContent || '') !== arg.expected
+            !sameText(pinned.editor.innerText || pinned.editor.textContent, arg.expected)
         ) {
             return null;
         }
@@ -363,7 +410,7 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
                 element => !requireVisible || visible(element)
             );
             const matches = elements.filter(
-                element => (element.innerText || '') === state.expected
+                element => sameText(element.innerText, state.expected)
             );
             const smallest = matches.filter(
                 element => !matches.some(
@@ -506,7 +553,7 @@ _MESSAGE_CONFIRMATION_READY_JS = (
             if (!visible(node)) return false;
             const elements = [node, ...node.querySelectorAll('*')].filter(visible);
             const matches = elements.filter(
-                element => (element.innerText || '') === arg.expected
+                element => sameText(element.innerText, arg.expected)
             );
             return matches.filter(
                 element => !matches.some(
@@ -612,6 +659,12 @@ _MESSAGE_COMPOSER_FOCUS_JS = (
 )
 
 _MESSAGE_COMPOSER_PINNED_JS = r"""
+    // Text is compared after collapsing whitespace: a message with line breaks
+    // renders as separate blocks in the editor and in the sent bubble, so the
+    // exact innerText is not stable even though the words are.
+    const sameText = (left, right) =>
+        (left || '').replace(/\s+/g, ' ').trim() ===
+        (right || '').replace(/\s+/g, ' ').trim();
     const visible = element => {
         const visibility = element && getComputedStyle(element).visibility;
         return !!(
@@ -672,7 +725,9 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
                 ...url.searchParams.getAll('recipient'),
                 ...url.searchParams.getAll('profileUrn'),
             ];
-            return values.every(value => normalizeUrn(value) === target.profileUrn)
+            return values.every(value =>
+                target.profileUrn === null || normalizeUrn(value) === target.profileUrn
+            )
                 ? url.href
                 : null;
         } catch {
@@ -715,7 +770,7 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
         );
         return !(
             paths.some(path => path !== target.profilePath) ||
-            urns.some(urn => urn !== target.profileUrn)
+            urns.some(urn => target.profileUrn !== null && urn !== target.profileUrn)
         );
     };
     const validatePinned = (target, requireEnabled = true) => {
@@ -794,8 +849,20 @@ _MESSAGE_COMPOSER_WRITE_JS = (
         ) {
             return 'unsupported';
         }
-        const inserted = document.execCommand('insertText', false, arg.message);
-        if ((editor.innerText || editor.textContent || '') === arg.message) {
+        // Line breaks are typed as paragraph breaks, what LinkedIn's composer
+        // does on Shift+Enter, so that Enter-to-send never fires and the sent
+        // message keeps its lines. execCommand emits input events like typing.
+        const lines = arg.message.split('\n');
+        let inserted = true;
+        lines.forEach((line, index) => {
+            if (index > 0 && inserted) {
+                inserted = document.execCommand('insertParagraph', false) && inserted;
+            }
+            if (line && inserted) {
+                inserted = document.execCommand('insertText', false, line) && inserted;
+            }
+        });
+        if (sameText(editor.innerText || editor.textContent, arg.message)) {
             pinned.ownedMessage = arg.message;
         }
         if (inserted !== true) return 'unsupported';
@@ -804,11 +871,21 @@ _MESSAGE_COMPOSER_WRITE_JS = (
             !pinned ||
             document.activeElement !== editor ||
             pinned.ownedMessage !== arg.message ||
-            (editor.innerText || editor.textContent || '') !== arg.message
+            !sameText(editor.innerText || editor.textContent, arg.message)
         ) {
             return 'invalid';
         }
         return 'written';
+    }"""
+)
+
+_MESSAGE_COMPOSER_PREVIEW_JS = (
+    "(owner, arg) => {"
+    + _MESSAGE_COMPOSER_PINNED_JS
+    + r"""
+        const pinned = validatePinned(arg, false);
+        if (!pinned || pinned.ownedMessage !== arg.message) return null;
+        return pinned.editor.innerText || pinned.editor.textContent || '';
     }"""
 )
 
@@ -821,7 +898,7 @@ _MESSAGE_COMPOSER_SUBMIT_READY_JS = (
             !pinned ||
             document.activeElement !== pinned.editor ||
             pinned.ownedMessage !== arg.message ||
-            (pinned.editor.innerText || pinned.editor.textContent || '') !== arg.message
+            !sameText(pinned.editor.innerText || pinned.editor.textContent, arg.message)
         ) {
             return 'invalid';
         }
@@ -833,6 +910,12 @@ _MESSAGE_COMPOSER_SUBMIT_READY_JS = (
 )
 
 _MESSAGE_COMPOSER_CLEANUP_JS = r"""(owner, arg) => {
+    // Text is compared after collapsing whitespace: a message with line breaks
+    // renders as separate blocks in the editor and in the sent bubble, so the
+    // exact innerText is not stable even though the words are.
+    const sameText = (left, right) =>
+        (left || '').replace(/\s+/g, ' ').trim() ===
+        (right || '').replace(/\s+/g, ' ').trim();
     const pinned = owner?.__linkedinMcpComposer;
     if (!pinned || pinned.ownedMessage !== arg.message) return false;
     const {editor, ancestorChain} = pinned;
@@ -852,7 +935,7 @@ _MESSAGE_COMPOSER_CLEANUP_JS = r"""(owner, arg) => {
         currentChain.some((scope, index) => scope !== ancestorChain[index]) ||
         !currentChain.includes(owner) ||
         !owner.contains(editor) ||
-        (editor.innerText || editor.textContent || '') !== arg.message
+        !sameText(editor.innerText || editor.textContent, arg.message)
     ) {
         return false;
     }
@@ -876,7 +959,7 @@ _MESSAGE_COMPOSER_SUBMIT_JS = (
             !pinned ||
             document.activeElement !== pinned.editor ||
             pinned.ownedMessage !== arg.message ||
-            (pinned.editor.innerText || pinned.editor.textContent || '') !== arg.message
+            !sameText(pinned.editor.innerText || pinned.editor.textContent, arg.message)
         ) {
             return 'invalid';
         }
@@ -901,7 +984,9 @@ _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 @dataclass(frozen=True)
 class _ProfileMessageTarget:
     profile_path: str
-    profile_urn: str
+    profile_urn: (
+        str | None
+    )  # None for a thread reply: the route, not a URN, is the boundary
     compose_url: str
     display_name: str | None
 
@@ -979,9 +1064,14 @@ def _profile_urn_from_compose_url(value: str, *, base: str | None = None) -> str
     return identifiers.pop()
 
 
-def _message_page_url_is_safe(value: str, profile_urn: str) -> bool:
+def _message_page_url_is_safe(value: str, profile_urn: str | None) -> bool:
+    """Accept only a compose or thread route whose recipient params match the URN.
+
+    A None URN belongs to a thread reply, which pins its exact route instead and
+    never calls this; it is refused here rather than treated as "any recipient".
+    """
     parsed = _safe_linkedin_url(value)
-    if parsed is None:
+    if parsed is None or profile_urn is None:
         return False
 
     params = parse_qs(parsed.query, keep_blank_values=True)
@@ -1107,7 +1197,7 @@ class MessageSender:
     @staticmethod
     def _message_target_argument(
         target: _ProfileMessageTarget,
-    ) -> dict[str, str | bool]:
+    ) -> dict[str, str | bool | None]:
         return {
             "profilePath": target.profile_path,
             "profileUrn": target.profile_urn,
@@ -1332,6 +1422,7 @@ class MessageSender:
         *,
         confirm_send: bool,
         profile_urn: str | None = None,
+        preview: bool = False,
     ) -> dict[str, Any]:
         """Compose and send a new message with explicit confirmation gating.
 
@@ -1348,7 +1439,11 @@ class MessageSender:
             confirm_send: Must be True to actually send (False does a dry run).
             profile_urn: Optional profile URN (e.g. ACoAAB...) to verify against
                 the recipient resolved from the loaded profile snapshot.
+            preview: With confirm_send False, also type the message into the
+                verified composer, report the editor text as ``preview`` and
+                clear it again, so line handling can be checked before sending.
         """
+        message = contracts.normalize_message_text(message)
         refusal = contracts.refuse_an_invalid_message(linkedin_username, message)
         if refusal is not None:
             return refusal
@@ -1401,7 +1496,111 @@ class MessageSender:
                 "recipient_resolution_failed",
                 "LinkedIn opened an unexpected messaging URL.",
             )
+        return await self._send_in_composer(
+            target,
+            message,
+            expected_route=expected_route,
+            url_is_safe=lambda url: _message_page_url_is_safe(url, target.profile_urn),
+            confirm_send=confirm_send,
+            preview=preview,
+            label=linkedin_username,
+        )
 
+    async def reply_in_thread(
+        self,
+        thread_id: str,
+        message: str,
+        *,
+        confirm_send: bool,
+        preview: bool = False,
+    ) -> dict[str, Any]:
+        """Reply inside an existing messaging thread with confirmation gating.
+
+        The thread route itself is the recipient boundary: the page must open at
+        exactly ``/messaging/thread/<thread_id>/`` and stay there through every
+        later step. The conversation's single visible participant profile is
+        recorded on the result as ``recipient_profile_path`` so the caller can
+        cross-check it; a thread that exposes no single participant (a group
+        conversation, or markup without a profile link) fails closed.
+        """
+        message = contracts.normalize_message_text(message)
+        refusal = contracts.refuse_an_invalid_thread_reply(thread_id, message)
+        if refusal is not None:
+            return refusal
+        thread_url = contracts.message_thread_url(thread_id)
+
+        await self._navigator._navigate_to_page(thread_url)
+        expected_route = self._page.url
+        parsed = _safe_linkedin_url(expected_route)
+        if parsed is None or parsed.path != urlparse(thread_url).path or parsed.query:
+            return contracts.message_action_result(
+                expected_route,
+                "thread_unavailable",
+                "LinkedIn did not open the requested conversation.",
+            )
+
+        participant = await self._read_thread_participant()
+        if participant is None:
+            return contracts.message_action_result(
+                expected_route,
+                "recipient_resolution_failed",
+                "The conversation did not expose exactly one participant profile.",
+            )
+        target = _ProfileMessageTarget(
+            profile_path=participant["path"],
+            profile_urn=None,
+            compose_url=expected_route,
+            display_name=participant.get("name"),
+        )
+        result = await self._send_in_composer(
+            target,
+            message,
+            expected_route=expected_route,
+            url_is_safe=lambda url: url == expected_route,
+            confirm_send=confirm_send,
+            preview=preview,
+            label=thread_id,
+        )
+        result["recipient_profile_path"] = target.profile_path
+        if target.display_name:
+            result["recipient_name"] = target.display_name
+        return result
+
+    async def _read_thread_participant(self) -> dict[str, str] | None:
+        """Return the one profile the open conversation is with, if unambiguous."""
+        try:
+            data = await self._page.evaluate(_THREAD_PARTICIPANT_JS)
+        except Exception:
+            logger.debug(
+                "Could not inspect the conversation participant", exc_info=True
+            )
+            return None
+        if not isinstance(data, dict) or not isinstance(data.get("path"), str):
+            return None
+        if not _PROFILE_PATH_RE.fullmatch(data["path"]):
+            return None
+        name = data.get("name")
+        return {
+            "path": data["path"],
+            **({"name": name} if isinstance(name, str) and name.strip() else {}),
+        }
+
+    async def _send_in_composer(
+        self,
+        target: _ProfileMessageTarget,
+        message: str,
+        *,
+        expected_route: str,
+        url_is_safe: Any,
+        confirm_send: bool,
+        preview: bool,
+        label: str,
+    ) -> dict[str, Any]:
+        """Verify the pinned composer on the current page, then type and submit.
+
+        Shared by the profile compose flow and the thread reply flow once each
+        has navigated to its route and pinned ``expected_route``.
+        """
         await self._session.check_rate_limit()
         if self._page.url != expected_route:
             return contracts.message_action_result(
@@ -1413,7 +1612,7 @@ class MessageSender:
         try:
             await self._page.wait_for_selector("main")
         except PlaywrightTimeoutError:
-            logger.debug("Compose page did not fully load for %s", linkedin_username)
+            logger.debug("Compose page did not fully load for %s", label)
         if self._page.url != expected_route:
             return contracts.message_action_result(
                 self._page.url,
@@ -1428,9 +1627,7 @@ class MessageSender:
                 "recipient_resolution_failed",
                 "The messaging URL changed while the composer was loading.",
             )
-        logger.debug(
-            "Message surface for %s was %s", linkedin_username, message_surface
-        )
+        logger.debug("Message surface for %s was %s", label, message_surface)
         if message_surface != "composer":
             return contracts.message_action_result(
                 self._page.url,
@@ -1448,7 +1645,7 @@ class MessageSender:
         if state.get("status") != "valid":
             logger.debug(
                 "Message recipient verification for %s returned %s",
-                linkedin_username,
+                label,
                 state.get("status"),
             )
             return contracts.message_action_result(
@@ -1459,12 +1656,17 @@ class MessageSender:
         recipient_selected = True
 
         if not confirm_send:
-            return contracts.message_action_result(
+            result = contracts.message_action_result(
                 self._page.url,
                 "confirmation_required",
                 "Set confirm_send=true to send the message.",
                 recipient_selected=recipient_selected,
             )
+            if preview:
+                result["preview"] = await self._preview_message(
+                    message, target=target, expected_route=expected_route
+                )
+            return result
 
         if self._page.url != expected_route:
             return contracts.message_action_result(
@@ -1525,7 +1727,7 @@ class MessageSender:
                     target=target,
                     owner=owner,
                 )
-                if not _message_page_url_is_safe(self._page.url, target.profile_urn):
+                if not url_is_safe(self._page.url):
                     return contracts.message_action_result(
                         self._page.url,
                         "recipient_resolution_failed",
@@ -1670,3 +1872,35 @@ class MessageSender:
             if may_have_submitted:
                 logger.warning(contracts.SEND_INTERRUPTED_WARNING)
             raise
+
+    async def _preview_message(
+        self,
+        message: str,
+        *,
+        target: _ProfileMessageTarget,
+        expected_route: str,
+    ) -> str | None:
+        """Type the message, read the editor text back, and clear it again.
+
+        Nothing is submitted. None means the composer would not take the text
+        (occupied, changed, or unsupported); the caller should not send blind.
+        """
+        owner = await self._resolve_message_owner(target, expected_route=expected_route)
+        if owner is None:
+            return None
+        try:
+            written = await self._write_verified_message(
+                message, target=target, owner=owner
+            )
+            if written != "written":
+                return None
+            text = await owner.evaluate(
+                _MESSAGE_COMPOSER_PREVIEW_JS,
+                {**self._message_target_argument(target), "message": message},
+            )
+            return text if isinstance(text, str) else None
+        finally:
+            try:
+                await self._cleanup_owned_message(message, owner)
+            finally:
+                await self._dispose_message_owner(owner)

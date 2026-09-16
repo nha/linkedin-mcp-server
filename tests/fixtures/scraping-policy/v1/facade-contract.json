@@ -56,6 +56,10 @@
         "coroutine": true,
         "signature": "(self, username: 'str') -> 'dict[str, Any]'"
       },
+      "reply_in_thread": {
+        "coroutine": true,
+        "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False) -> 'dict[str, Any]'"
+      },
       "scrape_company": {
         "coroutine": true,
         "signature": "(self, company_name: 'str', requested: 'set[str]', callbacks: 'ProgressCallback | None' = None) -> 'dict[str, Any]'"
@@ -90,7 +94,7 @@
       },
       "send_message": {
         "coroutine": true,
-        "signature": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'"
+        "signature": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None, preview: 'bool' = False) -> 'dict[str, Any]'"
       }
     },
     "tool_methods": [
@@ -103,6 +107,7 @@
       "get_my_profile",
       "get_saved_jobs",
       "get_sidebar_profiles",
+      "reply_in_thread",
       "scrape_company",
       "scrape_job",
       "scrape_person",
@@ -457,6 +462,40 @@
           "type": "object"
         }
       },
+      "reply_in_thread": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_send": {
+              "description": "Must be True to send the message",
+              "type": "boolean"
+            },
+            "message": {
+              "description": "Message text to send. Line breaks are allowed and are\ntyped as paragraph breaks (what Shift+Enter does). Other C0\ncontrol characters and DEL are rejected.",
+              "type": "string"
+            },
+            "preview": {
+              "default": false,
+              "description": "With confirm_send False, also type the message into the\nverified composer, return the editor text as ``preview`` and\nclear it again. Nothing is submitted.",
+              "type": "boolean"
+            },
+            "thread_id": {
+              "description": "LinkedIn messaging thread ID",
+              "type": "string"
+            }
+          },
+          "required": [
+            "thread_id",
+            "message",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "search_companies": {
         "input": {
           "additionalProperties": false,
@@ -714,8 +753,13 @@
               "type": "string"
             },
             "message": {
-              "description": "Single-line message text to send. C0 control characters and\nDEL are rejected, including CR, LF, and tab.",
+              "description": "Message text to send. Line breaks are allowed and are\ntyped as paragraph breaks (what Shift+Enter does), so a\nmulti-paragraph message arrives as one. Other C0 control\ncharacters and DEL are rejected.",
               "type": "string"
+            },
+            "preview": {
+              "default": false,
+              "description": "With confirm_send False, also type the message into the\nverified composer, return the editor text as ``preview`` and\nclear it again. Nothing is submitted.",
+              "type": "boolean"
             },
             "profile_urn": {
               "anyOf": [

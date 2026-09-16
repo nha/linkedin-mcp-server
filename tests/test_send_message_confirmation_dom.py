@@ -304,7 +304,12 @@ async def dom_page():
 
 
 async def send(
-    page, html: str, *, message: str = MESSAGE, confirm_send: bool = True
+    page,
+    html: str,
+    *,
+    message: str = MESSAGE,
+    confirm_send: bool = True,
+    preview: bool = False,
 ) -> dict:
     await page.goto(COMPOSE_URL)
     await page.set_content(html)
@@ -323,7 +328,7 @@ async def send(
         ),
     ):
         return await sender.send_message(
-            "fadi-eliwi", message, confirm_send=confirm_send
+            "fadi-eliwi", message, confirm_send=confirm_send, preview=preview
         )
 
 
@@ -878,11 +883,47 @@ class TestComposerRecipientDom:
         )
 
 
+MULTILINE_MESSAGE = "First line\n\nSecond paragraph\nthird line"
+THREAD_ID = "2-abc_DEF-123=="
+THREAD_URL = f"https://www.linkedin.com/messaging/thread/{THREAD_ID}/"
+
+
+def thread_page(send_js: str, *, participants: list[str], other: str = "") -> str:
+    """A conversation page: participant links live outside the composer form."""
+    header = "".join(
+        f'<a href="https://www.linkedin.com{path}">{DISPLAY_NAME}</a>'
+        for path in participants
+    )
+    return compose_page(send_js).replace(
+        '<section id="conversation" role="dialog">',
+        f'<header id="participants">{header}{other}</header>'
+        '<section id="conversation" role="dialog">',
+    )
+
+
+async def reply(
+    page,
+    html: str,
+    *,
+    thread_id: str = THREAD_ID,
+    message: str = MULTILINE_MESSAGE,
+    confirm_send: bool = True,
+    preview: bool = False,
+) -> dict:
+    await page.goto(THREAD_URL)
+    await page.set_content(html)
+    sender = _sender(page)
+    with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
+        return await sender.reply_in_thread(
+            thread_id, message, confirm_send=confirm_send, preview=preview
+        )
+
+
 class TestSendConfirmationDom:
     @pytest.mark.parametrize(
         "message",
-        ["First\nSecond", "First\rSecond", "First\tSecond", "First\x7fSecond"],
-        ids=["newline", "carriage-return", "tab", "del"],
+        ["First\tSecond", "First\x7fSecond", "First\x00Second"],
+        ids=["tab", "del", "nul"],
     )
     async def test_control_characters_are_rejected_before_dom_interaction(
         self, dom_page, message
@@ -893,10 +934,65 @@ class TestSendConfirmationDom:
 
         assert result["status"] == "invalid_message"
         assert result["message"] == (
-            "Message must not contain control characters or line breaks."
+            "Message must not contain control characters other than line breaks."
         )
         assert result["retry_safe"] is True
         assert await dom_page.evaluate("document.body.dataset.clicked") is None
+        assert (await dom_page.locator("#composer").inner_text()).strip() == ""
+
+    @pytest.mark.parametrize(
+        "message",
+        [MULTILINE_MESSAGE, MULTILINE_MESSAGE.replace("\n", "\r\n")],
+        ids=["lf", "crlf"],
+    )
+    async def test_line_breaks_are_typed_as_paragraphs_and_confirmed(
+        self, dom_page, message
+    ):
+        """Each line lands in its own block, and the confirmation still matches.
+
+        The editor's innerText then carries the breaks, while the bubble the
+        fixture renders from it collapses them, so only whitespace-insensitive
+        matching can confirm what was typed.
+        """
+        result = await send(
+            dom_page, compose_page(ID_TRANSITION_SEND_JS), message=message
+        )
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+        assert await dom_page.evaluate("document.body.dataset.clicked") == "1"
+        typed = await dom_page.evaluate(
+            "document.querySelector('#thread .msg:last-child .message-unit')"
+            ".textContent"
+        )
+        assert typed.split() == MULTILINE_MESSAGE.split()
+        assert typed.count("\n") >= 2, typed
+        assert (await dom_page.locator("#composer").inner_text()).strip() == ""
+
+    async def test_preview_types_reports_and_clears_without_sending(self, dom_page):
+        result = await send(
+            dom_page,
+            compose_page(ID_TRANSITION_SEND_JS),
+            message=MULTILINE_MESSAGE,
+            confirm_send=False,
+            preview=True,
+        )
+
+        assert result["status"] == "confirmation_required"
+        assert result["sent"] is False
+        assert result["retry_safe"] is True
+        assert result["preview"].split() == MULTILINE_MESSAGE.split()
+        assert result["preview"].count("\n") >= 2, result["preview"]
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+        assert (await dom_page.locator("#composer").inner_text()).strip() == ""
+
+    async def test_dry_run_without_preview_leaves_the_editor_alone(self, dom_page):
+        result = await send(
+            dom_page, compose_page(ID_TRANSITION_SEND_JS), confirm_send=False
+        )
+
+        assert result["status"] == "confirmation_required"
+        assert "preview" not in result
         assert (await dom_page.locator("#composer").inner_text()).strip() == ""
 
     async def test_local_bubble_without_id_transition_is_not_confirmed(self, dom_page):
@@ -1098,3 +1194,104 @@ class TestSendConfirmationDom:
         assert (await dom_page.locator("#composer").inner_text()).strip() == MESSAGE
         with pytest.raises(Exception, match="closed"):
             await captured["owner"].evaluate("owner => owner.isConnected")
+
+
+class TestReplyInThreadDom:
+    async def test_reply_types_paragraphs_in_the_open_thread(self, dom_page):
+        result = await reply(
+            dom_page,
+            thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH]),
+        )
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+        assert result["retry_safe"] is False
+        assert result["recipient_profile_path"] == PROFILE_PATH
+        assert result["recipient_name"] == DISPLAY_NAME
+        assert result["url"] == THREAD_URL
+        typed = await dom_page.evaluate(
+            "document.querySelector('#thread .msg:last-child .message-unit')"
+            ".textContent"
+        )
+        assert typed.split() == MULTILINE_MESSAGE.split()
+        assert typed.count("\n") >= 2, typed
+
+    async def test_reply_preview_reports_the_editor_without_sending(self, dom_page):
+        result = await reply(
+            dom_page,
+            thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH]),
+            confirm_send=False,
+            preview=True,
+        )
+
+        assert result["status"] == "confirmation_required"
+        assert result["recipient_selected"] is True
+        assert result["preview"].split() == MULTILINE_MESSAGE.split()
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+        assert (await dom_page.locator("#composer").inner_text()).strip() == ""
+
+    async def test_group_thread_fails_closed(self, dom_page):
+        result = await reply(
+            dom_page,
+            thread_page(
+                ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH, "/in/someone-else/"]
+            ),
+        )
+
+        assert result["status"] == "recipient_resolution_failed"
+        assert result["sent"] is False
+        assert result["retry_safe"] is True
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+
+    async def test_thread_without_a_participant_link_fails_closed(self, dom_page):
+        result = await reply(
+            dom_page, thread_page(ID_TRANSITION_SEND_JS, participants=[])
+        )
+
+        assert result["status"] == "recipient_resolution_failed"
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+
+    async def test_history_links_do_not_count_as_participants(self, dom_page):
+        """A profile mentioned in an old message is not who the reply goes to."""
+        html = thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
+        html = html.replace(
+            '<div id="thread">', '<div id="thread">' + history_item("/in/mentioned/")
+        )
+        result = await reply(dom_page, html)
+
+        assert result["status"] == "sent"
+        assert result["recipient_profile_path"] == PROFILE_PATH
+
+    async def test_wrong_route_is_refused_before_typing(self, dom_page):
+        await dom_page.goto("https://www.linkedin.com/messaging/thread/other-id/")
+        await dom_page.set_content(
+            thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
+        )
+        sender = _sender(dom_page)
+        with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
+            result = await sender.reply_in_thread(
+                THREAD_ID, MULTILINE_MESSAGE, confirm_send=True
+            )
+
+        assert result["status"] == "thread_unavailable"
+        assert result["retry_safe"] is True
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+
+    @pytest.mark.parametrize(
+        "thread_id",
+        ["", "abc/def", "abc?x=1", "abc def"],
+        ids=["empty", "slash", "query", "space"],
+    )
+    async def test_malformed_thread_id_is_refused_without_a_browser(
+        self, dom_page, thread_id
+    ):
+        sender = _sender(dom_page)
+        with patch.object(
+            PageNavigator, "_navigate_to_page", new_callable=AsyncMock
+        ) as navigate:
+            result = await sender.reply_in_thread(
+                thread_id, MULTILINE_MESSAGE, confirm_send=True
+            )
+
+        navigate.assert_not_awaited()
+        assert result["status"] == "invalid_thread"

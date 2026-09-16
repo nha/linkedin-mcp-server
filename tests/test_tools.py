@@ -988,7 +988,7 @@ class TestMessagingTools:
         assert result["status"] == "sent"
         assert result["sent"] is True
         mock_extractor.send_message.assert_awaited_once_with(
-            "testuser", "Hello!", confirm_send=True, profile_urn=None
+            "testuser", "Hello!", confirm_send=True, profile_urn=None, preview=False
         )
 
     async def test_send_message_description_explains_connection_handoff(self):
@@ -1007,7 +1007,7 @@ class TestMessagingTools:
             "connection request is accepted."
         ) in description
 
-    async def test_send_message_schema_explains_single_line_controls(self):
+    async def test_send_message_schema_explains_line_breaks_and_controls(self):
         from linkedin_mcp_server.tools.messaging import register_messaging_tools
 
         mcp = FastMCP("test")
@@ -1017,8 +1017,10 @@ class TestMessagingTools:
         assert tool is not None
         message_schema = tool.parameters["properties"]["message"]
         assert " ".join(message_schema["description"].split()) == (
-            "Single-line message text to send. C0 control characters and DEL are "
-            "rejected, including CR, LF, and tab."
+            "Message text to send. Line breaks are allowed and are typed as "
+            "paragraph breaks (what Shift+Enter does), so a multi-paragraph "
+            "message arrives as one. Other C0 control characters and DEL are "
+            "rejected."
         )
 
     @pytest.mark.parametrize("message", ["", "   \t\n"], ids=["empty", "whitespace"])
@@ -1053,8 +1055,38 @@ class TestMessagingTools:
 
     @pytest.mark.parametrize(
         "message",
-        [f"First{chr(codepoint)}Second" for codepoint in (*range(32), 127)],
-        ids=[f"U+{codepoint:04X}" for codepoint in (*range(32), 127)],
+        ["First\nSecond", "First\r\nSecond", "First\rSecond"],
+        ids=["lf", "crlf", "cr"],
+    )
+    async def test_send_message_accepts_line_breaks(self, mock_context, message):
+        """A line break is a paragraph break, not a control character.
+
+        CR and CRLF are folded to LF inside the sender, so every platform's
+        line ending types the same way; the tool passes the text through.
+        """
+        mock_extractor = _make_mock_extractor({"status": "sent", "sent": True})
+
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+
+        tool_fn = await get_tool_fn(mcp, "send_message")
+        result = await tool_fn(
+            "testuser", message, True, mock_context, extractor=mock_extractor
+        )
+
+        assert result["status"] == "sent"
+        mock_extractor.send_message.assert_awaited_once_with(
+            "testuser", message, confirm_send=True, profile_urn=None, preview=False
+        )
+
+    _CONTROL_CODEPOINTS = [c for c in (*range(32), 127) if c not in (10, 13)]
+
+    @pytest.mark.parametrize(
+        "message",
+        [f"First{chr(codepoint)}Second" for codepoint in _CONTROL_CODEPOINTS],
+        ids=[f"U+{codepoint:04X}" for codepoint in _CONTROL_CODEPOINTS],
     )
     async def test_send_message_refuses_controls_before_a_session(
         self, mock_context, message
@@ -1074,7 +1106,7 @@ class TestMessagingTools:
         ready.assert_not_awaited()
         assert result["status"] == "invalid_message"
         assert result["message"] == (
-            "Message must not contain control characters or line breaks."
+            "Message must not contain control characters other than line breaks."
         )
         assert result["retry_safe"] is True
 
@@ -1210,7 +1242,11 @@ class TestMessagingTools:
 
         assert result["status"] == "sent"
         mock_extractor.send_message.assert_awaited_once_with(
-            "testuser", "Hello!", confirm_send=True, profile_urn="ACoAAB1IelEB"
+            "testuser",
+            "Hello!",
+            confirm_send=True,
+            profile_urn="ACoAAB1IelEB",
+            preview=False,
         )
 
     async def test_send_message_error(self, mock_context):

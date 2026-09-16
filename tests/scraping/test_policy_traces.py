@@ -160,7 +160,7 @@ async def test_tool_schema_trace_keeps_people_boundary_coercion_and_inventory():
         "tool_schemas"
     ]
 
-    assert len(schemas) == 19
+    assert len(schemas) == 20
     network = schemas["search_people"]["input"]["properties"]["network"]
     assert network["anyOf"] == [
         {"items": {"type": "string"}, "type": "array"},
@@ -453,6 +453,37 @@ async def test_invalid_message_guards_cover_blank_c0_and_del_before_browser():
         assert trace["result"]["sent"] is False
         assert trace["result"]["retry_safe"] is True
         assert trace["events"] == []
+
+
+async def test_thread_reply_pins_the_route_and_names_the_participant():
+    traces = await build_policy_traces()
+    dry_run = traces["reply-dry-run.json"]
+    assert dry_run["result"]["status"] == "confirmation_required"
+    assert dry_run["result"]["recipient_selected"] is True
+    assert dry_run["result"]["recipient_profile_path"] == "/in/ada-lovelace/"
+    assert dry_run["result"]["recipient_name"] == "Ada Lovelace"
+    assert dry_run["result"]["url"] == (
+        "https://www.linkedin.com/messaging/thread/2-policy-thread==/"
+    )
+    assert "preview" not in dry_run["result"]
+
+    preview = traces["reply-dry-run-preview.json"]
+    assert preview["result"]["status"] == "confirmation_required"
+    assert preview["result"]["sent"] is False
+    assert preview["result"]["retry_safe"] is True
+    assert preview["result"]["preview"] == "First line\n\nSecond paragraph"
+    operations = [e.get("operation") for e in preview["events"] if "operation" in e]
+    assert operations[-4:] == [
+        "message_composer_write",
+        "message_composer_preview",
+        "message_composer_cleanup",
+        "message_composer_dispose",
+    ]
+
+    group = traces["reply-group.json"]
+    assert group["result"]["status"] == "recipient_resolution_failed"
+    assert group["result"]["sent"] is False
+    assert all(e.get("operation") != "message_composer_write" for e in group["events"])
 
 
 async def test_feed_stale_stop_and_listener_cleanup_are_bounded():

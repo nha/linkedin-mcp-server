@@ -805,6 +805,76 @@ async def _messaging_cancellation_scenario() -> dict[str, Any]:
     )
 
 
+_THREAD_ID = "2-policy-thread=="
+_THREAD_PARTICIPANT = {
+    "status": "resolved",
+    "path": "/in/ada-lovelace/",
+    "name": "Ada Lovelace",
+}
+_MULTILINE_TEXT = "First line\n\nSecond paragraph"
+
+
+async def _thread_reply_dry_run_scenario(*, preview: bool) -> dict[str, Any]:
+    suffix = "dry_run_preview" if preview else "dry_run"
+    recorder = TraceRecorder(f"reply_in_thread__{suffix}", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    page.goto_landings.append(_MESSAGE_ROUTE)
+    page.script("evaluate:thread_participant", _THREAD_PARTICIPANT)
+    page.script("wait_for_function:message_composer_ready", None)
+    page.script("evaluate:message_composer_state", _VALID_COMPOSER)
+    if preview:
+        page.script("evaluate_handle:message_composer_owner", True)
+        page.script("handle-1.evaluate:message_composer_write", "written")
+        page.script("handle-1.evaluate:message_composer_preview", _MULTILINE_TEXT)
+        _script_owned_text_cleanup(page, removed=True)
+        page.script("handle-1.evaluate:message_composer_dispose", None)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context("reply_in_thread", "message"):
+            result = await extractor.reply_in_thread(
+                _THREAD_ID,
+                _MULTILINE_TEXT,
+                confirm_send=False,
+                preview=preview,
+            )
+    page.assert_clean()
+    return recorder.trace(
+        {
+            "method": "reply_in_thread",
+            "arguments": {
+                "thread_id": _THREAD_ID,
+                "message": _MULTILINE_TEXT,
+                "confirm_send": False,
+                "preview": preview,
+            },
+        },
+        result,
+    )
+
+
+async def _thread_reply_group_scenario() -> dict[str, Any]:
+    recorder = TraceRecorder("reply_in_thread__group", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    page.goto_landings.append(_MESSAGE_ROUTE)
+    page.script("evaluate:thread_participant", {"status": "ambiguous"})
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context("reply_in_thread", "message"):
+            result = await extractor.reply_in_thread(
+                _THREAD_ID, _MULTILINE_TEXT, confirm_send=True
+            )
+    page.assert_clean()
+    return recorder.trace(
+        {
+            "method": "reply_in_thread",
+            "arguments": {"thread_id": _THREAD_ID, "participants": "ambiguous"},
+        },
+        result,
+    )
+
+
 async def _invalid_message_scenario(message: str, label: str) -> dict[str, Any]:
     recorder = TraceRecorder(f"send_message__invalid_{label}", _COMMON_ALLOWED)
     clock = FakeClock(recorder)
@@ -1036,6 +1106,7 @@ TOOL_FACADE_METHODS = {
     "search_people",
     "search_posts",
     "send_message",
+    "reply_in_thread",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -1093,8 +1164,13 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "message-sent.json": await _messaging_submission_scenario("sent"),
         "message-cancelled.json": await _messaging_cancellation_scenario(),
         "message-blank.json": await _invalid_message_scenario("   ", "blank"),
-        "message-c0.json": await _invalid_message_scenario("line\nbreak", "c0"),
+        "message-c0.json": await _invalid_message_scenario("tab\there", "c0"),
         "message-del.json": await _invalid_message_scenario("text\x7f", "del"),
+        "reply-dry-run.json": await _thread_reply_dry_run_scenario(preview=False),
+        "reply-dry-run-preview.json": await _thread_reply_dry_run_scenario(
+            preview=True
+        ),
+        "reply-group.json": await _thread_reply_group_scenario(),
         "connect.json": await _connect_scenario(),
         "get-my-profile.json": await _get_my_profile_scenario(),
         "sidebar-profiles.json": await _sidebar_scenario(),

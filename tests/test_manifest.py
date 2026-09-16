@@ -166,12 +166,16 @@ def test_every_declared_key_is_referenced(manifest: dict[str, Any]) -> None:
     )
 
 
-def test_send_message_documents_single_line_controls(manifest: dict[str, Any]) -> None:
+def test_send_message_documents_line_breaks_and_controls(
+    manifest: dict[str, Any],
+) -> None:
     tools = {tool["name"]: tool["description"] for tool in manifest["tools"]}
     assert (
-        "single-line message without C0 or DEL control characters "
-        "(including CR, LF, and tab)"
+        "line breaks are typed as paragraph breaks, other C0 and DEL control "
+        "characters are rejected"
     ) in tools["send_message"]
+    assert "reply_in_thread" in tools
+    assert "group conversations fail closed" in tools["reply_in_thread"]
 
 
 def test_no_default_is_itself_a_placeholder(manifest: dict[str, Any]) -> None:

@@ -20,6 +20,7 @@ from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.scraping.contracts import (
     SEND_INTERRUPTED_WARNING,
     refuse_an_invalid_message,
+    refuse_an_invalid_thread_reply,
 )
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,7 @@ def register_messaging_tools(
         confirm_send: bool,
         ctx: Context,
         profile_urn: str | None = None,
+        preview: bool = False,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -252,8 +254,10 @@ def register_messaging_tools(
 
         Args:
             linkedin_username: LinkedIn username of the recipient; a full profile URL is accepted too
-            message: Single-line message text to send. C0 control characters and
-                DEL are rejected, including CR, LF, and tab.
+            message: Message text to send. Line breaks are allowed and are
+                typed as paragraph breaks (what Shift+Enter does), so a
+                multi-paragraph message arrives as one. Other C0 control
+                characters and DEL are rejected.
             confirm_send: Must be True to send the message
             ctx: FastMCP context for progress reporting
             profile_urn: Optional profile URN (e.g. ACoAAB...) to verify against
@@ -261,6 +265,9 @@ def register_messaging_tools(
                 action. It never bypasses recipient verification. Obtain via
                 get_person_profile. Note: inbox may not always show all messages;
                 use search_conversations as a fallback.
+            preview: With confirm_send False, also type the message into the
+                verified composer, return the editor text as ``preview`` and
+                clear it again. Nothing is submitted.
 
         Returns:
             Dict with url, status, message, recipient_selected, sent, and
@@ -300,6 +307,7 @@ def register_messaging_tools(
                 message,
                 confirm_send=confirm_send,
                 profile_urn=profile_urn,
+                preview=preview,
             )
 
             try:
@@ -324,3 +332,86 @@ def register_messaging_tools(
                 raise_tool_error(relogin_exc, "send_message")
         except Exception as e:
             raise_tool_error(e, "send_message")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Reply In Thread",
+        annotations={"destructiveHint": True, "openWorldHint": True},
+        tags={"messaging", "actions"},
+        exclude_args=["extractor"],
+    )
+    async def reply_in_thread(
+        thread_id: str,
+        message: str,
+        confirm_send: bool,
+        ctx: Context,
+        preview: bool = False,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Reply inside an existing LinkedIn messaging thread.
+
+        This is the reply path for a conversation you already have, including
+        recruiter InMail threads, where profile-based send_message would open a
+        separate DM. The thread ID comes from get_inbox, search_conversations
+        or get_conversation (the ``/messaging/thread/<id>/`` reference).
+
+        The page must open at exactly that thread route and stay there through
+        text entry and submission. The single participant profile the page
+        links to is returned as ``recipient_profile_path`` (and
+        ``recipient_name`` when shown) so you can cross-check who receives the
+        reply; a group conversation fails closed. This is a write operation
+        when confirm_send is True.
+
+        Args:
+            thread_id: LinkedIn messaging thread ID
+            message: Message text to send. Line breaks are allowed and are
+                typed as paragraph breaks (what Shift+Enter does). Other C0
+                control characters and DEL are rejected.
+            confirm_send: Must be True to send the message
+            ctx: FastMCP context for progress reporting
+            preview: With confirm_send False, also type the message into the
+                verified composer, return the editor text as ``preview`` and
+                clear it again. Nothing is submitted.
+
+        Returns:
+            Dict with url, status, message, recipient_selected, sent,
+            retry_safe, and the recipient fields above. ``sent`` and
+            ``retry_safe`` mean the same as for send_message.
+        """
+        try:
+            refusal = refuse_an_invalid_thread_reply(thread_id, message)
+            if refusal is not None:
+                return refusal
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="reply_in_thread"
+            )
+            logger.info(
+                "Replying in thread %s (confirm_send=%s)", thread_id, confirm_send
+            )
+
+            await ctx.report_progress(progress=0, total=100, message="Replying")
+
+            result = await extractor.reply_in_thread(
+                thread_id,
+                message,
+                confirm_send=confirm_send,
+                preview=preview,
+            )
+
+            try:
+                await ctx.report_progress(progress=100, total=100, message="Complete")
+            except BaseException:
+                if result.get("retry_safe") is False:
+                    logger.warning(SEND_INTERRUPTED_WARNING)
+                raise
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "reply_in_thread")
+        except Exception as e:
+            raise_tool_error(e, "reply_in_thread")  # NoReturn
