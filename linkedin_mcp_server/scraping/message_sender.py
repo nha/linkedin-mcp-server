@@ -138,15 +138,6 @@ _THREAD_PARTICIPANT_JS = r"""(arg) => {
     //  2. the sender links inside the history, minus the viewer's own, since
     //     an InMail thread links nothing in its header.
     // Several links to one profile are fine; two different profiles are not.
-    const visible = element => {
-        const visibility = element && getComputedStyle(element).visibility;
-        return !!(
-            element &&
-            visibility !== 'hidden' &&
-            visibility !== 'collapse' &&
-            (element.offsetWidth || element.offsetHeight || element.getClientRects().length)
-        );
-    };
     const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
     const ownName = normalize(arg.ownName).toLowerCase();
     const ownFirst = ownName.split(' ')[0] || '';
@@ -159,11 +150,15 @@ _THREAD_PARTICIPANT_JS = r"""(arg) => {
             normalize(text).toLowerCase().includes(ownName) || words.includes(ownFirst)
         );
     };
+    // Identity links are read, not clicked, so hidden ones count too: the
+    // sender link on a message is an accessibility link with no box of its own.
     const root = document.querySelector('main') || document.body;
     const groups = {header: new Map(), history: new Map()};
     let dropped = 0;
+    let anchors = 0;
     for (const anchor of root.querySelectorAll('a[href*="/in/"]')) {
-        if (!visible(anchor) || anchor.closest('form')) continue;
+        anchors += 1;
+        if (anchor.closest('form')) continue;
         let url;
         try {
             url = new URL(anchor.getAttribute('href') || anchor.href || '', window.location.href);
@@ -185,9 +180,15 @@ _THREAD_PARTICIPANT_JS = r"""(arg) => {
     const found = header.length > 0 ? header : history;
     const source = header.length > 0 ? 'header' : 'history';
     if (found.length !== 1) {
-        return {status: found.length === 0 ? 'none' : 'ambiguous', found, source, dropped};
+        return {
+            status: found.length === 0 ? 'none' : 'ambiguous',
+            found, source, dropped, anchors,
+        };
     }
-    return {status: 'resolved', path: found[0].path, name: found[0].name, found, source, dropped};
+    return {
+        status: 'resolved', path: found[0].path, name: found[0].name,
+        found, source, dropped, anchors,
+    };
 }"""
 
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
@@ -1642,7 +1643,7 @@ class MessageSender:
         detail = (
             f"profiles linked in the {data.get('source')}: {listing}"
             if listing
-            else "no profile is linked"
+            else f"no profile is linked ({data.get('anchors', 0)} profile anchors on the page)"
         )
         if data.get("dropped"):
             detail += f"; {data['dropped']} link(s) to the viewer's own profile skipped"

@@ -133,7 +133,7 @@
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "thread_participant",
-      "program_digest": "1285c7fb3c7a",
+      "program_digest": "51ed2430abbe",
       "section": "message"
     }
   ],
