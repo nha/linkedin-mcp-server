@@ -159,9 +159,11 @@ _THREAD_PARTICIPANT_JS = r"""() => {
         const name = (anchor.innerText || '').replace(/\s+/g, ' ').trim();
         if (!paths.has(path) || (!paths.get(path) && name)) paths.set(path, name);
     }
-    if (paths.size !== 1) return {status: paths.size === 0 ? 'none' : 'ambiguous'};
-    const [path, name] = paths.entries().next().value;
-    return {status: 'resolved', path, name: name || null};
+    const found = Array.from(paths, ([path, name]) => ({path, name: name || null}));
+    if (paths.size !== 1) {
+        return {status: paths.size === 0 ? 'none' : 'ambiguous', found};
+    }
+    return {status: 'resolved', path: found[0].path, name: found[0].name, found};
 }"""
 
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
@@ -1539,12 +1541,13 @@ class MessageSender:
                 "LinkedIn did not open the requested conversation.",
             )
 
-        participant = await self._read_thread_participant()
+        participant, detail = await self._read_thread_participant()
         if participant is None:
             return contracts.message_action_result(
                 expected_route,
                 "recipient_resolution_failed",
-                "The conversation did not expose exactly one participant profile.",
+                "The conversation did not expose exactly one participant profile "
+                f"({detail}).",
             )
         target = _ProfileMessageTarget(
             profile_path=participant["path"],
@@ -1566,24 +1569,36 @@ class MessageSender:
             result["recipient_name"] = target.display_name
         return result
 
-    async def _read_thread_participant(self) -> dict[str, str] | None:
-        """Return the one profile the open conversation is with, if unambiguous."""
+    async def _read_thread_participant(self) -> tuple[dict[str, str] | None, str]:
+        """Return the one profile the open conversation is with, if unambiguous.
+
+        The second element says what the page exposed, for the failure message:
+        which profiles were linked, or that none were.
+        """
         try:
             data = await self._page.evaluate(_THREAD_PARTICIPANT_JS)
         except Exception:
             logger.debug(
                 "Could not inspect the conversation participant", exc_info=True
             )
-            return None
-        if not isinstance(data, dict) or not isinstance(data.get("path"), str):
-            return None
-        if not _PROFILE_PATH_RE.fullmatch(data["path"]):
-            return None
+            return None, "the participant could not be inspected"
+        if not isinstance(data, dict):
+            return None, "the participant could not be inspected"
+        found = data.get("found")
+        listing = ", ".join(
+            f"{item.get('name') or '?'} ({item.get('path')})"
+            for item in (found if isinstance(found, list) else [])
+            if isinstance(item, dict)
+        )
+        detail = f"profiles linked: {listing}" if listing else "no profile is linked"
+        path = data.get("path")
+        if not isinstance(path, str) or not _PROFILE_PATH_RE.fullmatch(path):
+            return None, detail
         name = data.get("name")
         return {
-            "path": data["path"],
+            "path": path,
             **({"name": name} if isinstance(name, str) and name.strip() else {}),
-        }
+        }, detail
 
     async def _send_in_composer(
         self,

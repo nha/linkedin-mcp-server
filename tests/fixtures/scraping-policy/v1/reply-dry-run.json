@@ -69,7 +69,7 @@
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "thread_participant",
-      "program_digest": "2dcdf9813466",
+      "program_digest": "fc3325ca2eba",
       "section": "message"
     },
     {

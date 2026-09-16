@@ -67,12 +67,12 @@
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "thread_participant",
-      "program_digest": "2dcdf9813466",
+      "program_digest": "fc3325ca2eba",
       "section": "message"
     }
   ],
   "result": {
-    "message": "The conversation did not expose exactly one participant profile.",
+    "message": "The conversation did not expose exactly one participant profile (no profile is linked).",
     "recipient_selected": false,
     "retry_safe": true,
     "sent": false,
