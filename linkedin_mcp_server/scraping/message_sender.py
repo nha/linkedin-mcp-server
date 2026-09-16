@@ -131,6 +131,97 @@ _OWN_NAME_JS = r"""() => {
         .replace(/\s+/g, ' ').trim();
 }"""
 
+_JOB_POSTER_TARGET_JS = r"""() => {
+    // The hiring-team card on a job page: one compose link whose recipient
+    // params name one profile, next to that profile's own link. Anything
+    // else (no card, two posters, a link elsewhere on the page) is unresolved.
+    const visible = element => {
+        const visibility = element && getComputedStyle(element).visibility;
+        return !!(
+            element &&
+            visibility !== 'hidden' &&
+            visibility !== 'collapse' &&
+            (element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+        );
+    };
+    const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+    const recipientOf = href => {
+        try {
+            const url = new URL(href, window.location.href);
+            const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+            if (
+                url.protocol !== 'https:' ||
+                !/(^|\.)linkedin\.com$/.test(hostname) ||
+                url.username || url.password || (url.port && url.port !== '443') ||
+                url.hash || url.pathname !== '/messaging/compose/'
+            ) {
+                return null;
+            }
+            const values = [
+                ...url.searchParams.getAll('recipient'),
+                ...url.searchParams.getAll('profileUrn'),
+            ].map(item => {
+                const text = item.trim();
+                const prefix = 'urn:li:fsd_profile:';
+                const id = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+                return /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+            });
+            return values.length > 0 && values.every(v => v !== null && v === values[0])
+                ? values[0]
+                : null;
+        } catch {
+            return null;
+        }
+    };
+    const main = document.querySelector('main');
+    if (!main) return {status: 'unresolved'};
+    const anchors = Array.from(main.querySelectorAll('a[href*="/messaging/compose/"]'))
+        .filter(visible);
+    if (anchors.length === 0) return {status: 'unavailable', pageUrl: window.location.href};
+    if (anchors.length !== 1) return {status: 'unresolved', count: anchors.length};
+    const anchor = anchors[0];
+    const href = anchor.getAttribute('href') || anchor.href || '';
+    const urn = recipientOf(href);
+    if (!urn) return {status: 'unresolved'};
+    // The poster's profile link: the closest ancestor of the compose link that
+    // also holds exactly one /in/ link.
+    let scope = anchor.parentElement;
+    let profileLinks = [];
+    for (let depth = 0; scope && scope !== main && depth < 8; depth += 1) {
+        profileLinks = Array.from(scope.querySelectorAll('a[href*="/in/"]'));
+        if (profileLinks.length > 0) break;
+        scope = scope.parentElement;
+    }
+    const paths = new Set();
+    let name = '';
+    for (const link of profileLinks) {
+        try {
+            const url = new URL(link.getAttribute('href') || link.href || '', window.location.href);
+            const match = /^\/in\/([^/?#]+)(?:\/.*)?$/.exec(url.pathname);
+            if (!match) continue;
+            paths.add(`/in/${match[1]}/`);
+            const first = normalize((link.innerText || '').split('\n')[0]);
+            if (first && (!name || first.length < name.length)) name = first;
+        } catch {}
+    }
+    if (paths.size !== 1) return {status: 'unresolved', profiles: Array.from(paths)};
+    return {
+        status: 'resolved',
+        pageUrl: window.location.href,
+        composeHref: href,
+        profileUrn: urn,
+        profilePath: Array.from(paths)[0],
+        displayName: name || null,
+    };
+}"""
+_JOB_POSTER_TARGET_READY_JS = (
+    "() => {"
+    + 'const main = document.querySelector("main");'
+    + 'return !!main && main.querySelectorAll(\'a[href*="/messaging/compose/"], a[href*="/in/"]\').length > 0;'
+    + "}"
+)
+_JOB_POSTER_TARGET_TIMEOUT_MS = 10_000
+
 _THREAD_PARTICIPANT_READY_JS = r"""() => {
     // The messaging page is an application shell: the thread, and with it the
     // participant links, render a moment after the route is reached.
@@ -1612,6 +1703,110 @@ class MessageSender:
             confirm_send=confirm_send,
             preview=preview,
             label=thread_id,
+        )
+        result["recipient_profile_path"] = target.profile_path
+        if target.display_name:
+            result["recipient_name"] = target.display_name
+        return result
+
+    async def message_job_poster(
+        self,
+        job_id: str,
+        message: str,
+        *,
+        confirm_send: bool,
+        preview: bool = False,
+    ) -> dict[str, Any]:
+        """Message the poster of a job through the listing's hiring-team card.
+
+        The card's Message link is a recipient-specific compose URL, so the
+        same verified compose flow as send_message applies from there on: the
+        URN in that link is the recipient boundary and the compose route is
+        pinned. This is the free route to a poster who is not a connection,
+        where the profile page offers no plain Message action.
+        """
+        message = contracts.normalize_message_text(message)
+        refusal = contracts.refuse_an_invalid_job_message(job_id, message)
+        if refusal is not None:
+            return refusal
+        job_url = contracts.job_url(job_id)
+
+        await self._navigator._navigate_to_page(job_url)
+        await self._session.check_rate_limit()
+        try:
+            await self._page.wait_for_function(
+                _JOB_POSTER_TARGET_READY_JS, timeout=_JOB_POSTER_TARGET_TIMEOUT_MS
+            )
+        except PlaywrightTimeoutError:
+            pass
+        except Exception:
+            logger.debug("Could not wait for the job page to render", exc_info=True)
+        try:
+            data = await self._page.evaluate(_JOB_POSTER_TARGET_JS)
+        except Exception:
+            logger.debug("Could not inspect the job's hiring team", exc_info=True)
+            data = None
+        if not isinstance(data, dict) or data.get("status") == "unresolved":
+            return contracts.message_action_result(
+                self._page.url,
+                "recipient_resolution_failed",
+                "The job page did not expose one unambiguous hiring-team Message "
+                "link with one poster profile.",
+            )
+        if data.get("status") == "unavailable":
+            return contracts.message_action_result(
+                self._page.url,
+                "message_unavailable",
+                "The job page shows no hiring-team Message link.",
+            )
+        compose_href = data.get("composeHref")
+        parsed_compose = (
+            _safe_linkedin_url(compose_href, base=self._page.url)
+            if isinstance(compose_href, str)
+            else None
+        )
+        profile_urn = (
+            _profile_urn_from_compose_url(parsed_compose.geturl())
+            if parsed_compose is not None
+            else None
+        )
+        profile_path = data.get("profilePath")
+        if (
+            parsed_compose is None
+            or profile_urn is None
+            or profile_urn != data.get("profileUrn")
+            or not isinstance(profile_path, str)
+            or not _PROFILE_PATH_RE.fullmatch(profile_path)
+        ):
+            return contracts.message_action_result(
+                self._page.url,
+                "recipient_resolution_failed",
+                "The hiring-team Message link did not name one recipient.",
+            )
+        display_name = data.get("displayName")
+        target = _ProfileMessageTarget(
+            profile_path=profile_path,
+            profile_urn=profile_urn,
+            compose_url=parsed_compose.geturl(),
+            display_name=display_name if isinstance(display_name, str) else None,
+        )
+
+        await self._navigator._navigate_to_page(target.compose_url)
+        expected_route = self._page.url
+        if not _message_page_url_is_safe(expected_route, target.profile_urn):
+            return contracts.message_action_result(
+                expected_route,
+                "recipient_resolution_failed",
+                "LinkedIn opened an unexpected messaging URL.",
+            )
+        result = await self._send_in_composer(
+            target,
+            message,
+            expected_route=expected_route,
+            url_is_safe=lambda url: _message_page_url_is_safe(url, target.profile_urn),
+            confirm_send=confirm_send,
+            preview=preview,
+            label=f"job {job_id}",
         )
         result["recipient_profile_path"] = target.profile_path
         if target.display_name:

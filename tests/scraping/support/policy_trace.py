@@ -610,6 +610,12 @@ def semantic_program_id(program: str) -> str:
         ("document.execCommand('insertText'", "message_composer_write"),
         ("return pinned.editor.innerText", "message_composer_preview"),
         ("found.length === 0 ? 'none'", "thread_participant"),
+        (".some(anchor => !anchor.closest('form'))", "thread_participant_ready"),
+        (
+            'main.querySelectorAll(\'a[href*="/messaging/compose/"], a[href*="/in/"]\').length > 0',
+            "job_poster_target_ready",
+        ),
+        ("const recipientOf = href", "job_poster_target"),
         ("return pinned.button.disabled", "message_submit_ready"),
         ("inputType: 'deleteContentBackward'", "message_composer_cleanup"),
         ("pinned.button.click()", "message_submit"),

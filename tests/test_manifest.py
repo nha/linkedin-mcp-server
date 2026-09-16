@@ -176,6 +176,7 @@ def test_send_message_documents_line_breaks_and_controls(
     ) in tools["send_message"]
     assert "reply_in_thread" in tools
     assert "group conversations fail closed" in tools["reply_in_thread"]
+    assert "hiring-team card" in tools["message_job_poster"]
 
 
 def test_no_default_is_itself_a_placeholder(manifest: dict[str, Any]) -> None:

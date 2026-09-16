@@ -9,6 +9,7 @@ JavaScript in headless Chromium without making a LinkedIn request or write.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -893,7 +894,7 @@ def thread_page(
     *,
     participants: list[str],
     other: str = "",
-    senders: list[tuple[str, str]] = (),
+    senders: Sequence[tuple[str, str]] = (),
 ) -> str:
     """A conversation page.
 
@@ -1380,3 +1381,110 @@ class TestReplyInThreadDom:
 
         navigate.assert_not_awaited()
         assert result["status"] == "invalid_thread"
+
+
+JOB_ID = "4400000000"
+JOB_URL = f"https://www.linkedin.com/jobs/view/{JOB_ID}/"
+
+
+def job_page(*, posters: list[tuple[str, str]], compose_links: int = 1) -> str:
+    """A job page with a hiring-team card: (profile path, name) per poster."""
+    cards = "".join(
+        f'<div class="card"><a href="https://www.linkedin.com{path}">{name}<div>Recruiter</div></a>'
+        + "".join(
+            f'<a href="/messaging/compose/?recipient=ACoAAB&profileUrn=urn%3Ali%3Afsd_profile%3AACoAAB'
+            f'&screenContext=JOB_DETAILS_HIRING_TEAM&jobPostingUrn=urn%3Ali%3Afsd_jobPosting%3A{JOB_ID}">Message</a>'
+            for _ in range(compose_links)
+        )
+        + "</div>"
+        for path, name in posters
+    )
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
+<main><h1>Senior Agentic AI Engineer</h1><section id="hiring">{cards}</section></main>
+</body></html>"""
+
+
+async def message_poster(
+    page, job_html: str, *, confirm_send: bool = True, preview: bool = False
+) -> dict:
+    """Navigate to the job page, then let the compose navigation load the composer."""
+    compose_html = compose_page(ID_TRANSITION_SEND_JS)
+
+    async def navigate(self, url):
+        if "/jobs/view/" in url:
+            await page.goto(JOB_URL)
+            await page.set_content(job_html)
+        else:
+            await page.goto(url)
+            await page.set_content(compose_html)
+
+    sender = _sender(page)
+    with (
+        patch.object(PageNavigator, "_navigate_to_page", navigate),
+        patch(
+            "linkedin_mcp_server.scraping.message_sender._message_page_url_is_safe",
+            return_value=True,
+        ),
+    ):
+        return await sender.message_job_poster(
+            JOB_ID, MULTILINE_MESSAGE, confirm_send=confirm_send, preview=preview
+        )
+
+
+class TestMessageJobPosterDom:
+    async def test_one_poster_is_messaged_through_the_card_link(self, dom_page):
+        result = await message_poster(
+            dom_page, job_page(posters=[(PROFILE_PATH, DISPLAY_NAME)])
+        )
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+        assert result["recipient_profile_path"] == PROFILE_PATH
+        assert result["recipient_name"] == DISPLAY_NAME
+        typed = await dom_page.evaluate(
+            "document.querySelector('#thread .msg:last-child .message-unit')"
+            ".textContent"
+        )
+        assert typed.split() == MULTILINE_MESSAGE.split()
+
+    async def test_preview_reports_without_sending(self, dom_page):
+        result = await message_poster(
+            dom_page,
+            job_page(posters=[(PROFILE_PATH, DISPLAY_NAME)]),
+            confirm_send=False,
+            preview=True,
+        )
+
+        assert result["status"] == "confirmation_required"
+        assert result["preview"].split() == MULTILINE_MESSAGE.split()
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+
+    async def test_two_posters_fail_closed(self, dom_page):
+        result = await message_poster(
+            dom_page,
+            job_page(posters=[(PROFILE_PATH, DISPLAY_NAME), ("/in/other/", "Other")]),
+        )
+
+        assert result["status"] == "recipient_resolution_failed"
+        assert result["sent"] is False
+
+    async def test_no_card_is_reported_as_unavailable(self, dom_page):
+        result = await message_poster(dom_page, job_page(posters=[]))
+
+        assert result["status"] == "message_unavailable"
+        assert result["retry_safe"] is True
+
+    @pytest.mark.parametrize("job_id", ["", "abc", "12", "123/456"])
+    async def test_malformed_job_id_is_refused_without_a_browser(
+        self, dom_page, job_id
+    ):
+        sender = _sender(dom_page)
+        with patch.object(
+            PageNavigator, "_navigate_to_page", new_callable=AsyncMock
+        ) as navigate:
+            result = await sender.message_job_poster(
+                job_id, MULTILINE_MESSAGE, confirm_send=True
+            )
+
+        navigate.assert_not_awaited()
+        assert result["status"] == "invalid_job"

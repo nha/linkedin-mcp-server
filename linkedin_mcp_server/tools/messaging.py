@@ -20,6 +20,7 @@ from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.scraping.contracts import (
     SEND_INTERRUPTED_WARNING,
     refuse_an_invalid_message,
+    refuse_an_invalid_job_message,
     refuse_an_invalid_thread_reply,
 )
 
@@ -415,3 +416,84 @@ def register_messaging_tools(
                 raise_tool_error(relogin_exc, "reply_in_thread")
         except Exception as e:
             raise_tool_error(e, "reply_in_thread")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Message Job Poster",
+        annotations={"destructiveHint": True, "openWorldHint": True},
+        tags={"messaging", "actions"},
+        exclude_args=["extractor"],
+    )
+    async def message_job_poster(
+        job_id: str,
+        message: str,
+        confirm_send: bool,
+        ctx: Context,
+        preview: bool = False,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Message the poster of a job through the listing's hiring-team card.
+
+        The free route to a job poster who is not a connection: their profile
+        page offers no plain Message action, but the job page's "Meet the
+        hiring team" card links a recipient-specific compose URL. From that
+        link on, the verified compose flow of send_message applies: the URN
+        in the link is the recipient boundary and the compose route is pinned.
+        The poster's profile is returned as ``recipient_profile_path`` (and
+        ``recipient_name``) for cross-checking; a job with no card, or with
+        more than one poster, fails closed. This is a write operation when
+        confirm_send is True.
+
+        Args:
+            job_id: LinkedIn job ID (e.g., "4464311934")
+            message: Message text to send. Line breaks are allowed and are
+                typed as paragraph breaks (what Shift+Enter does). Other C0
+                control characters and DEL are rejected.
+            confirm_send: Must be True to send the message
+            ctx: FastMCP context for progress reporting
+            preview: With confirm_send False, also type the message into the
+                verified composer, return the editor text as ``preview`` and
+                clear it again. Nothing is submitted.
+
+        Returns:
+            Dict with url, status, message, recipient_selected, sent,
+            retry_safe, and the recipient fields above. ``sent`` and
+            ``retry_safe`` mean the same as for send_message.
+        """
+        try:
+            refusal = refuse_an_invalid_job_message(job_id, message)
+            if refusal is not None:
+                return refusal
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="message_job_poster"
+            )
+            logger.info(
+                "Messaging the poster of job %s (confirm_send=%s)", job_id, confirm_send
+            )
+
+            await ctx.report_progress(progress=0, total=100, message="Messaging")
+
+            result = await extractor.message_job_poster(
+                job_id,
+                message,
+                confirm_send=confirm_send,
+                preview=preview,
+            )
+
+            try:
+                await ctx.report_progress(progress=100, total=100, message="Complete")
+            except BaseException:
+                if result.get("retry_safe") is False:
+                    logger.warning(SEND_INTERRUPTED_WARNING)
+                raise
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "message_job_poster")
+        except Exception as e:
+            raise_tool_error(e, "message_job_poster")  # NoReturn

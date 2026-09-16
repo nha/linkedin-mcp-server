@@ -822,6 +822,7 @@ async def _thread_reply_dry_run_scenario(*, preview: bool) -> dict[str, Any]:
     page.goto_landings.append("https://www.linkedin.com/in/policy-viewer/")
     page.script("evaluate:profile_display_name", "Policy Viewer")
     page.goto_landings.append(_MESSAGE_ROUTE)
+    page.script("wait_for_function:thread_participant_ready", None)
     page.script("evaluate:thread_participant", _THREAD_PARTICIPANT)
     page.script("wait_for_function:message_composer_ready", None)
     page.script("evaluate:message_composer_state", _VALID_COMPOSER)
@@ -862,6 +863,7 @@ async def _thread_reply_group_scenario() -> dict[str, Any]:
     page.goto_landings.append("https://www.linkedin.com/in/policy-viewer/")
     page.script("evaluate:profile_display_name", "Policy Viewer")
     page.goto_landings.append(_MESSAGE_ROUTE)
+    page.script("wait_for_function:thread_participant_ready", None)
     page.script(
         "evaluate:thread_participant",
         {
@@ -885,6 +887,47 @@ async def _thread_reply_group_scenario() -> dict[str, Any]:
         {
             "method": "reply_in_thread",
             "arguments": {"thread_id": _THREAD_ID, "participants": "ambiguous"},
+        },
+        result,
+    )
+
+
+_JOB_ID = "4400000000"
+_JOB_POSTER_TARGET = {
+    "status": "resolved",
+    "pageUrl": "https://www.linkedin.com/jobs/view/4400000000/",
+    "composeHref": _MESSAGE_COMPOSE_URL + "&screenContext=JOB_DETAILS_HIRING_TEAM",
+    "profileUrn": "ACoAA-policy",
+    "profilePath": "/in/ada-lovelace/",
+    "displayName": "Ada Lovelace",
+}
+
+
+async def _job_poster_dry_run_scenario() -> dict[str, Any]:
+    recorder = TraceRecorder("message_job_poster__dry_run", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    page.goto_landings.append("https://www.linkedin.com/jobs/view/4400000000/")
+    page.script("wait_for_function:job_poster_target_ready", None)
+    page.script("evaluate:job_poster_target", _JOB_POSTER_TARGET)
+    page.goto_landings.append(_MESSAGE_ROUTE)
+    page.script("wait_for_function:message_composer_ready", None)
+    page.script("evaluate:message_composer_state", _VALID_COMPOSER)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context("message_job_poster", "message"):
+            result = await extractor.message_job_poster(
+                _JOB_ID, _MULTILINE_TEXT, confirm_send=False
+            )
+    page.assert_clean()
+    return recorder.trace(
+        {
+            "method": "message_job_poster",
+            "arguments": {
+                "job_id": _JOB_ID,
+                "message": _MULTILINE_TEXT,
+                "confirm_send": False,
+            },
         },
         result,
     )
@@ -1122,6 +1165,7 @@ TOOL_FACADE_METHODS = {
     "search_posts",
     "send_message",
     "reply_in_thread",
+    "message_job_poster",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -1186,6 +1230,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
             preview=True
         ),
         "reply-group.json": await _thread_reply_group_scenario(),
+        "job-poster-dry-run.json": await _job_poster_dry_run_scenario(),
         "connect.json": await _connect_scenario(),
         "get-my-profile.json": await _get_my_profile_scenario(),
         "sidebar-profiles.json": await _sidebar_scenario(),

@@ -274,3 +274,19 @@ class LinkedInExtractor:
             confirm_send=confirm_send,
             preview=preview,
         )
+
+    async def message_job_poster(
+        self,
+        job_id: str,
+        message: str,
+        *,
+        confirm_send: bool,
+        preview: bool = False,
+    ) -> dict[str, Any]:
+        """Message a job's poster through the listing's hiring-team card."""
+        return await self._message_sender.message_job_poster(
+            job_id,
+            message,
+            confirm_send=confirm_send,
+            preview=preview,
+        )

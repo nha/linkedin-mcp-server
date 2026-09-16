@@ -2,24 +2,23 @@
   "call": {
     "arguments": {
       "confirm_send": false,
-      "message": "First line\n\nSecond paragraph",
-      "preview": false,
-      "thread_id": "2-policy-thread=="
+      "job_id": "4400000000",
+      "message": "First line\n\nSecond paragraph"
     },
-    "method": "reply_in_thread"
+    "method": "message_job_poster"
   },
   "events": [
     {
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "callback_id": "callback-1",
       "event": "framenavigated",
       "kind": "listener.add",
       "section": "message"
     },
     {
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "extra": {
-        "target_url": "https://www.linkedin.com/in/me/",
+        "target_url": "https://www.linkedin.com/jobs/view/4400000000/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -27,25 +26,25 @@
       "section": "message"
     },
     {
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "kind": "navigate",
-      "landed_url": "https://www.linkedin.com/in/policy-viewer/",
-      "requested_url": "https://www.linkedin.com/in/me/",
+      "landed_url": "https://www.linkedin.com/jobs/view/4400000000/",
+      "requested_url": "https://www.linkedin.com/jobs/view/4400000000/",
       "section": "message",
       "timeout_ms": 30000,
       "wait_until": "domcontentloaded"
     },
     {
-      "call": "reply_in_thread",
-      "description": "goto https://www.linkedin.com/in/me/",
+      "call": "message_job_poster",
+      "description": "goto https://www.linkedin.com/jobs/view/4400000000/",
       "kind": "boundary.stabilize",
       "result": null,
       "section": "message"
     },
     {
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "extra": {
-        "target_url": "https://www.linkedin.com/in/me/",
+        "target_url": "https://www.linkedin.com/jobs/view/4400000000/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -53,107 +52,102 @@
       "section": "message"
     },
     {
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "kind": "boundary.auth_quick",
       "result": null,
       "section": "message"
     },
     {
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "callback_id": "callback-1",
       "event": "framenavigated",
       "kind": "listener.remove",
       "section": "message"
     },
     {
-      "call": "reply_in_thread",
-      "kind": "evaluate",
-      "operation": "profile_display_name",
-      "program_digest": "9437935375a3",
-      "section": "message"
-    },
-    {
-      "call": "reply_in_thread",
-      "callback_id": "callback-2",
-      "event": "framenavigated",
-      "kind": "listener.add",
-      "section": "message"
-    },
-    {
-      "call": "reply_in_thread",
-      "extra": {
-        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
-        "wait_until": "domcontentloaded"
-      },
-      "kind": "boundary.trace",
-      "label": "extractor-before-goto",
-      "section": "message"
-    },
-    {
-      "call": "reply_in_thread",
-      "kind": "navigate",
-      "landed_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
-      "requested_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
-      "section": "message",
-      "timeout_ms": 30000,
-      "wait_until": "domcontentloaded"
-    },
-    {
-      "call": "reply_in_thread",
-      "description": "goto https://www.linkedin.com/messaging/thread/2-policy-thread==/",
-      "kind": "boundary.stabilize",
-      "result": null,
-      "section": "message"
-    },
-    {
-      "call": "reply_in_thread",
-      "extra": {
-        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
-        "wait_until": "domcontentloaded"
-      },
-      "kind": "boundary.trace",
-      "label": "extractor-after-goto",
-      "section": "message"
-    },
-    {
-      "call": "reply_in_thread",
-      "kind": "boundary.auth_quick",
-      "result": null,
-      "section": "message"
-    },
-    {
-      "call": "reply_in_thread",
-      "callback_id": "callback-2",
-      "event": "framenavigated",
-      "kind": "listener.remove",
-      "section": "message"
-    },
-    {
-      "arg": null,
-      "call": "reply_in_thread",
-      "kind": "wait_for_function",
-      "operation": "thread_participant_ready",
-      "program_digest": "b695b8949e78",
-      "section": "message",
-      "timeout_ms": 10000
-    },
-    {
-      "arg": {
-        "ownName": "Policy Viewer"
-      },
-      "call": "reply_in_thread",
-      "kind": "evaluate",
-      "operation": "thread_participant",
-      "program_digest": "a44c1480c1d3",
-      "section": "message"
-    },
-    {
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "kind": "boundary.rate_limit",
       "section": "message"
     },
     {
-      "call": "reply_in_thread",
+      "arg": null,
+      "call": "message_job_poster",
+      "kind": "wait_for_function",
+      "operation": "job_poster_target_ready",
+      "program_digest": "4317df11a2ba",
+      "section": "message",
+      "timeout_ms": 10000
+    },
+    {
+      "call": "message_job_poster",
+      "kind": "evaluate",
+      "operation": "job_poster_target",
+      "program_digest": "f6a1757a0ab2",
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
+      "extra": {
+        "target_url": "https://www.linkedin.com/messaging/compose/?recipient=ACoAA-policy&profileUrn=urn%3Ali%3Afsd_profile%3AACoAA-policy&screenContext=JOB_DETAILS_HIRING_TEAM",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "requested_url": "https://www.linkedin.com/messaging/compose/?recipient=ACoAA-policy&profileUrn=urn%3Ali%3Afsd_profile%3AACoAA-policy&screenContext=JOB_DETAILS_HIRING_TEAM",
+      "section": "message",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "message_job_poster",
+      "description": "goto https://www.linkedin.com/messaging/compose/?recipient=ACoAA-policy&profileUrn=urn%3Ali%3Afsd_profile%3AACoAA-policy&screenContext=JOB_DETAILS_HIRING_TEAM",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
+      "extra": {
+        "target_url": "https://www.linkedin.com/messaging/compose/?recipient=ACoAA-policy&profileUrn=urn%3Ali%3Afsd_profile%3AACoAA-policy&screenContext=JOB_DETAILS_HIRING_TEAM",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
+      "kind": "boundary.rate_limit",
+      "section": "message"
+    },
+    {
+      "call": "message_job_poster",
       "kind": "wait_for_selector",
       "operation": "main",
       "section": "message",
@@ -164,9 +158,9 @@
     {
       "arg": {
         "profilePath": "/in/ada-lovelace/",
-        "profileUrn": null
+        "profileUrn": "ACoAA-policy"
       },
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "kind": "wait_for_function",
       "operation": "message_composer_ready",
       "program_digest": "78385026b279",
@@ -176,9 +170,9 @@
     {
       "arg": {
         "profilePath": "/in/ada-lovelace/",
-        "profileUrn": null
+        "profileUrn": "ACoAA-policy"
       },
-      "call": "reply_in_thread",
+      "call": "message_job_poster",
       "kind": "evaluate",
       "operation": "message_composer_state",
       "program_digest": "73c96da898b8",
@@ -195,6 +189,6 @@
     "status": "confirmation_required",
     "url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/"
   },
-  "scenario": "reply_in_thread__dry_run",
+  "scenario": "message_job_poster__dry_run",
   "schema_version": 1
 }

@@ -21,7 +21,7 @@ a page-owning collaborator.
 | `connection` | `ActionSignals`, `ConnectionState`, `detect_connection_state()` | `browser-free` |
 | `connection_actions` | `ACTION_SIGNALS_JS`, `CLICK_INCOMING_ACCEPT_JS`, `ConnectionActions`, `OPEN_MORE_BUTTON_JS`, `ReadMainProfile` | `page-owning` |
 | `content` | `PageContentReader` | `page-owning` |
-| `contracts` | `ExtractedSection`, `FilterValidationError`, `MESSAGE_THREAD_ID_RE`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `invalid_message_reason()`, `message_action_result()`, `message_thread_url()`, `normalize_message_text()`, `rate_limited_section_error()`, `refuse_an_invalid_message()`, `refuse_an_invalid_thread_reply()` | `browser-free` |
+| `contracts` | `ExtractedSection`, `FilterValidationError`, `JOB_ID_RE`, `MESSAGE_THREAD_ID_RE`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `invalid_message_reason()`, `job_url()`, `message_action_result()`, `message_thread_url()`, `normalize_message_text()`, `rate_limited_section_error()`, `refuse_an_invalid_job_message()`, `refuse_an_invalid_message()`, `refuse_an_invalid_thread_reply()` | `browser-free` |
 | `conversations` | `ConversationReader`, `strip_select_conversation_prefix()` | `page-owning` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
 | `feed` | `FeedScraper` | `page-owning` |
@@ -82,6 +82,7 @@ a page-owning collaborator.
 - `get_page_text`
 - `get_saved_jobs`
 - `get_sidebar_profiles`
+- `message_job_poster`
 - `reply_in_thread`
 - `scrape_company`
 - `scrape_job`

@@ -175,3 +175,24 @@ class FilterValidationError(ValueError):
     letting the MCP tool wrapper catch this case precisely and surface the
     actionable message past ``mask_error_details``.
     """
+
+
+JOB_ID_RE = re.compile(r"^[0-9]{6,}$")
+
+
+def job_url(job_id: str) -> str:
+    return f"https://www.linkedin.com/jobs/view/{job_id}/"
+
+
+def refuse_an_invalid_job_message(job_id: str, message: str) -> dict[str, Any] | None:
+    """Return the browser-free refusal for an unsafe job-poster message, if any."""
+    if not JOB_ID_RE.fullmatch(job_id or ""):
+        return message_action_result(
+            "https://www.linkedin.com/jobs/",
+            "invalid_job",
+            "job_id must be a numeric LinkedIn job ID.",
+        )
+    reason = invalid_message_reason(message)
+    if reason is None:
+        return None
+    return message_action_result(job_url(job_id), "invalid_message", reason)

@@ -130,7 +130,7 @@
       "arg": null,
       "call": "reply_in_thread",
       "kind": "wait_for_function",
-      "operation": "company_people_ready",
+      "operation": "thread_participant_ready",
       "program_digest": "b695b8949e78",
       "section": "message",
       "timeout_ms": 10000
