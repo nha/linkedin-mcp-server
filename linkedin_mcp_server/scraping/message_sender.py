@@ -125,10 +125,19 @@ _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
 
-_THREAD_PARTICIPANT_JS = r"""() => {
-    // The participant of an open conversation: the one profile linked from the
-    // page outside the message history and outside the composer form. Several
-    // links to the same profile are fine; two different profiles are not.
+_OWN_NAME_JS = r"""() => {
+    const heading = document.querySelector('main h1');
+    return ((heading && (heading.innerText || heading.textContent)) || '')
+        .replace(/\s+/g, ' ').trim();
+}"""
+
+_THREAD_PARTICIPANT_JS = r"""(arg) => {
+    // Who the open conversation is with. Two sources, in order:
+    //  1. a profile linked from the page outside the message history and the
+    //     composer (the thread header of a regular conversation);
+    //  2. the sender links inside the history, minus the viewer's own, since
+    //     an InMail thread links nothing in its header.
+    // Several links to one profile are fine; two different profiles are not.
     const visible = element => {
         const visibility = element && getComputedStyle(element).visibility;
         return !!(
@@ -138,15 +147,23 @@ _THREAD_PARTICIPANT_JS = r"""() => {
             (element.offsetWidth || element.offsetHeight || element.getClientRects().length)
         );
     };
+    const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+    const ownName = normalize(arg.ownName).toLowerCase();
+    const ownFirst = ownName.split(' ')[0] || '';
+    const isOwn = text => {
+        // A sender link names its profile by first name ("View Nicolas' profile")
+        // or in full. A namesake gets dropped too, which then fails closed as
+        // "no profile is linked" rather than picking the wrong one.
+        const words = normalize(text).toLowerCase().split(/[^\p{L}\p{N}]+/u);
+        return !!ownName && (
+            normalize(text).toLowerCase().includes(ownName) || words.includes(ownFirst)
+        );
+    };
     const root = document.querySelector('main') || document.body;
-    const anchors = Array.from(root.querySelectorAll('a[href*="/in/"]')).filter(
-        anchor =>
-            visible(anchor) &&
-            !anchor.closest('[data-view-name="message-list-item"]') &&
-            !anchor.closest('form')
-    );
-    const paths = new Map();
-    for (const anchor of anchors) {
+    const groups = {header: new Map(), history: new Map()};
+    let dropped = 0;
+    for (const anchor of root.querySelectorAll('a[href*="/in/"]')) {
+        if (!visible(anchor) || anchor.closest('form')) continue;
         let url;
         try {
             url = new URL(anchor.getAttribute('href') || anchor.href || '', window.location.href);
@@ -156,14 +173,21 @@ _THREAD_PARTICIPANT_JS = r"""() => {
         const match = /^\/in\/([^/?#]+)(?:\/.*)?$/.exec(url.pathname);
         if (!match) continue;
         const path = `/in/${match[1]}/`;
-        const name = (anchor.innerText || '').replace(/\s+/g, ' ').trim();
-        if (!paths.has(path) || (!paths.get(path) && name)) paths.set(path, name);
+        const text = normalize(anchor.innerText || anchor.getAttribute('aria-label') || '');
+        const inHistory = !!anchor.closest('[data-view-name="message-list-item"]');
+        if (isOwn(text)) { dropped += 1; continue; }
+        const group = inHistory ? groups.history : groups.header;
+        if (!group.has(path) || (!group.get(path) && text)) group.set(path, text);
     }
-    const found = Array.from(paths, ([path, name]) => ({path, name: name || null}));
-    if (paths.size !== 1) {
-        return {status: paths.size === 0 ? 'none' : 'ambiguous', found};
+    const describe = map => Array.from(map, ([path, name]) => ({path, name: name || null}));
+    const header = describe(groups.header);
+    const history = describe(groups.history);
+    const found = header.length > 0 ? header : history;
+    const source = header.length > 0 ? 'header' : 'history';
+    if (found.length !== 1) {
+        return {status: found.length === 0 ? 'none' : 'ambiguous', found, source, dropped};
     }
-    return {status: 'resolved', path: found[0].path, name: found[0].name, found};
+    return {status: 'resolved', path: found[0].path, name: found[0].name, found, source, dropped};
 }"""
 
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
@@ -1094,6 +1118,7 @@ class MessageSender:
         self._session = session
         self._navigator = navigator
         self._page = session.page
+        self._own_name: str | None = None
 
     async def _read_profile_message_target(self) -> _ProfileMessageTargetResolution:
         """Resolve one recipient-specific top-card compose action after settling."""
@@ -1531,6 +1556,7 @@ class MessageSender:
             return refusal
         thread_url = contracts.message_thread_url(thread_id)
 
+        own_name = await self._read_own_name()
         await self._navigator._navigate_to_page(thread_url)
         expected_route = self._page.url
         parsed = _safe_linkedin_url(expected_route)
@@ -1541,7 +1567,7 @@ class MessageSender:
                 "LinkedIn did not open the requested conversation.",
             )
 
-        participant, detail = await self._read_thread_participant()
+        participant, detail = await self._read_thread_participant(own_name)
         if participant is None:
             return contracts.message_action_result(
                 expected_route,
@@ -1569,14 +1595,37 @@ class MessageSender:
             result["recipient_name"] = target.display_name
         return result
 
-    async def _read_thread_participant(self) -> tuple[dict[str, str] | None, str]:
+    async def _read_own_name(self) -> str:
+        """Return the viewer's display name, resolved once per session via /in/me/.
+
+        Sender links in a conversation carry the viewer's name, and the name is
+        the one locale-independent way to tell those links from the other
+        participant's. Unknown (no heading) resolves to "", which drops nothing.
+        """
+        if self._own_name is None:
+            try:
+                await self._navigator._navigate_to_page(
+                    "https://www.linkedin.com/in/me/"
+                )
+                name = await self._page.evaluate(_OWN_NAME_JS)
+            except Exception:
+                logger.debug("Could not resolve the viewer's own name", exc_info=True)
+                name = ""
+            self._own_name = name if isinstance(name, str) else ""
+        return self._own_name
+
+    async def _read_thread_participant(
+        self, own_name: str
+    ) -> tuple[dict[str, str] | None, str]:
         """Return the one profile the open conversation is with, if unambiguous.
 
         The second element says what the page exposed, for the failure message:
         which profiles were linked, or that none were.
         """
         try:
-            data = await self._page.evaluate(_THREAD_PARTICIPANT_JS)
+            data = await self._page.evaluate(
+                _THREAD_PARTICIPANT_JS, {"ownName": own_name}
+            )
         except Exception:
             logger.debug(
                 "Could not inspect the conversation participant", exc_info=True
@@ -1590,7 +1639,13 @@ class MessageSender:
             for item in (found if isinstance(found, list) else [])
             if isinstance(item, dict)
         )
-        detail = f"profiles linked: {listing}" if listing else "no profile is linked"
+        detail = (
+            f"profiles linked in the {data.get('source')}: {listing}"
+            if listing
+            else "no profile is linked"
+        )
+        if data.get("dropped"):
+            detail += f"; {data['dropped']} link(s) to the viewer's own profile skipped"
         path = data.get("path")
         if not isinstance(path, str) or not _PROFILE_PATH_RE.fullmatch(path):
             return None, detail

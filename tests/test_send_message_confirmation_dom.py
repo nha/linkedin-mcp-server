@@ -888,16 +888,37 @@ THREAD_ID = "2-abc_DEF-123=="
 THREAD_URL = f"https://www.linkedin.com/messaging/thread/{THREAD_ID}/"
 
 
-def thread_page(send_js: str, *, participants: list[str], other: str = "") -> str:
-    """A conversation page: participant links live outside the composer form."""
+def thread_page(
+    send_js: str,
+    *,
+    participants: list[str],
+    other: str = "",
+    senders: list[tuple[str, str]] = (),
+) -> str:
+    """A conversation page.
+
+    ``participants`` are header links outside the composer form (a regular
+    thread); ``senders`` are (path, link text) pairs inside message history
+    items (what an InMail thread exposes instead).
+    """
     header = "".join(
         f'<a href="https://www.linkedin.com{path}">{DISPLAY_NAME}</a>'
         for path in participants
     )
-    return compose_page(send_js).replace(
-        '<section id="conversation" role="dialog">',
-        f'<header id="participants">{header}{other}</header>'
-        '<section id="conversation" role="dialog">',
+    history = "".join(
+        f'<div data-view-name="message-list-item" data-event-urn="sent-{i}">'
+        f'<a href="https://www.linkedin.com{path}">{text}</a>'
+        f'<span class="message-unit">hello {i}</span></div>'
+        for i, (path, text) in enumerate(senders)
+    )
+    return (
+        compose_page(send_js)
+        .replace(
+            '<section id="conversation" role="dialog">',
+            f'<header id="participants">{header}{other}</header>'
+            '<section id="conversation" role="dialog">',
+        )
+        .replace('<div id="thread">', '<div id="thread">' + history)
     )
 
 
@@ -909,10 +930,12 @@ async def reply(
     message: str = MULTILINE_MESSAGE,
     confirm_send: bool = True,
     preview: bool = False,
+    own_name: str = "Nicolas HA",
 ) -> dict:
     await page.goto(THREAD_URL)
     await page.set_content(html)
     sender = _sender(page)
+    sender._own_name = own_name
     with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
         return await sender.reply_in_thread(
             thread_id, message, confirm_send=confirm_send, preview=preview
@@ -1241,6 +1264,58 @@ class TestReplyInThreadDom:
         assert result["status"] == "recipient_resolution_failed"
         assert result["sent"] is False
         assert result["retry_safe"] is True
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+
+    async def test_inmail_thread_uses_history_senders_minus_the_viewer(self, dom_page):
+        """An InMail thread links no header profile; senders in the history do."""
+        result = await reply(
+            dom_page,
+            thread_page(
+                ID_TRANSITION_SEND_JS,
+                participants=[],
+                senders=[
+                    (PROFILE_PATH, "Open Fadi Al Eliwi\u2019s profile"),
+                    ("/in/ACoAAviewer/", "View Nicolas\u2019 profile"),
+                    (PROFILE_PATH, "View Fadi\u2019s profile"),
+                ],
+            ),
+        )
+
+        assert result["status"] == "sent"
+        assert result["recipient_profile_path"] == PROFILE_PATH
+
+    async def test_a_namesake_sender_fails_closed_instead_of_guessing(self, dom_page):
+        result = await reply(
+            dom_page,
+            thread_page(
+                ID_TRANSITION_SEND_JS,
+                participants=[],
+                senders=[
+                    ("/in/other-nicolas/", "View Nicolas\u2019 profile"),
+                    ("/in/ACoAAviewer/", "View Nicolas\u2019 profile"),
+                ],
+            ),
+        )
+
+        assert result["status"] == "recipient_resolution_failed"
+        assert "2 link(s) to the viewer's own profile skipped" in result["message"]
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+
+    async def test_two_other_senders_fail_closed(self, dom_page):
+        result = await reply(
+            dom_page,
+            thread_page(
+                ID_TRANSITION_SEND_JS,
+                participants=[],
+                senders=[
+                    (PROFILE_PATH, "View Fadi\u2019s profile"),
+                    ("/in/someone-else/", "View Someone\u2019s profile"),
+                ],
+            ),
+        )
+
+        assert result["status"] == "recipient_resolution_failed"
+        assert "profiles linked in the history" in result["message"]
         assert await dom_page.evaluate("document.body.dataset.clicked") is None
 
     async def test_thread_without_a_participant_link_fails_closed(self, dom_page):

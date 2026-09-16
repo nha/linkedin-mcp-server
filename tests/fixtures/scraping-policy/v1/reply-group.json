@@ -17,6 +17,69 @@
     {
       "call": "reply_in_thread",
       "extra": {
+        "target_url": "https://www.linkedin.com/in/me/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/in/policy-viewer/",
+      "requested_url": "https://www.linkedin.com/in/me/",
+      "section": "message",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "reply_in_thread",
+      "description": "goto https://www.linkedin.com/in/me/",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "extra": {
+        "target_url": "https://www.linkedin.com/in/me/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "kind": "evaluate",
+      "operation": "profile_display_name",
+      "program_digest": "9437935375a3",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "reply_in_thread",
+      "extra": {
         "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
         "wait_until": "domcontentloaded"
       },
@@ -58,21 +121,24 @@
     },
     {
       "call": "reply_in_thread",
-      "callback_id": "callback-1",
+      "callback_id": "callback-2",
       "event": "framenavigated",
       "kind": "listener.remove",
       "section": "message"
     },
     {
+      "arg": {
+        "ownName": "Policy Viewer"
+      },
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "thread_participant",
-      "program_digest": "fc3325ca2eba",
+      "program_digest": "1285c7fb3c7a",
       "section": "message"
     }
   ],
   "result": {
-    "message": "The conversation did not expose exactly one participant profile (no profile is linked).",
+    "message": "The conversation did not expose exactly one participant profile (profiles linked in the history: Ada Lovelace (/in/ada-lovelace/), Charles Babbage (/in/charles-babbage/); 1 link(s) to the viewer's own profile skipped).",
     "recipient_selected": false,
     "retry_safe": true,
     "sent": false,

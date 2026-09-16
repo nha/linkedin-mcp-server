@@ -819,6 +819,8 @@ async def _thread_reply_dry_run_scenario(*, preview: bool) -> dict[str, Any]:
     recorder = TraceRecorder(f"reply_in_thread__{suffix}", _COMMON_ALLOWED)
     clock = FakeClock(recorder)
     page = _page(recorder)
+    page.goto_landings.append("https://www.linkedin.com/in/policy-viewer/")
+    page.script("evaluate:profile_display_name", "Policy Viewer")
     page.goto_landings.append(_MESSAGE_ROUTE)
     page.script("evaluate:thread_participant", _THREAD_PARTICIPANT)
     page.script("wait_for_function:message_composer_ready", None)
@@ -857,8 +859,21 @@ async def _thread_reply_group_scenario() -> dict[str, Any]:
     recorder = TraceRecorder("reply_in_thread__group", _COMMON_ALLOWED)
     clock = FakeClock(recorder)
     page = _page(recorder)
+    page.goto_landings.append("https://www.linkedin.com/in/policy-viewer/")
+    page.script("evaluate:profile_display_name", "Policy Viewer")
     page.goto_landings.append(_MESSAGE_ROUTE)
-    page.script("evaluate:thread_participant", {"status": "ambiguous"})
+    page.script(
+        "evaluate:thread_participant",
+        {
+            "status": "ambiguous",
+            "source": "history",
+            "dropped": 1,
+            "found": [
+                {"path": "/in/ada-lovelace/", "name": "Ada Lovelace"},
+                {"path": "/in/charles-babbage/", "name": "Charles Babbage"},
+            ],
+        },
+    )
     extractor = _extractor(page)
     async with boundaries(recorder, clock):
         with recorder.context("reply_in_thread", "message"):
