@@ -1239,6 +1239,16 @@ class TestReplyInThreadDom:
         assert typed.split() == MULTILINE_MESSAGE.split()
         assert typed.count("\n") >= 2, typed
 
+    async def test_reply_confirms_when_the_history_sits_beside_the_form(self, dom_page):
+        """A conversation page has no dialog: main holds history and composer."""
+        html = thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
+        html = html.replace('<section id="conversation" role="dialog">', "<section>")
+        result = await reply(dom_page, html)
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+        assert (await dom_page.locator("#composer").inner_text()).strip() == ""
+
     async def test_reply_preview_reports_the_editor_without_sending(self, dom_page):
         result = await reply(
             dom_page,

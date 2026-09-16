@@ -171,7 +171,7 @@
       "call": "send_message",
       "kind": "wait_for_function",
       "operation": "message_composer_ready",
-      "program_digest": "40729ddedf4a",
+      "program_digest": "78385026b279",
       "section": "message",
       "timeout_ms": null
     },
@@ -183,7 +183,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "8d3b124562f3",
+      "program_digest": "73c96da898b8",
       "section": "message"
     },
     {
@@ -194,7 +194,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "8d3b124562f3",
+      "program_digest": "73c96da898b8",
       "section": "message"
     },
     {
@@ -208,7 +208,7 @@
       "call": "send_message",
       "kind": "evaluate_handle",
       "operation": "message_composer_owner",
-      "program_digest": "46a2181c49e7",
+      "program_digest": "564d3ba5dd79",
       "section": "message"
     },
     {
@@ -228,7 +228,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_write",
-      "program_digest": "5907a5d32316",
+      "program_digest": "c65f511e8494",
       "section": "message"
     },
     {
@@ -241,7 +241,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_submit_ready",
-      "program_digest": "6d20fc535cf5",
+      "program_digest": "dc6c7b73c559",
       "section": "message"
     },
     {
@@ -261,7 +261,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_submit_ready",
-      "program_digest": "6d20fc535cf5",
+      "program_digest": "dc6c7b73c559",
       "section": "message"
     },
     {
@@ -276,7 +276,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_confirmation_prepare",
-      "program_digest": "a618b5721e70",
+      "program_digest": "5c46ea18c06d",
       "section": "message"
     },
     {
@@ -289,7 +289,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_submit",
-      "program_digest": "ce0eb50e3da4",
+      "program_digest": "41194cd36eec",
       "section": "message"
     },
     {
@@ -305,7 +305,7 @@
       "call": "send_message",
       "kind": "wait_for_function",
       "operation": "message_confirmation_ready",
-      "program_digest": "ce51ca352c8b",
+      "program_digest": "8a3173a604c3",
       "section": "message",
       "timeout_ms": null
     },

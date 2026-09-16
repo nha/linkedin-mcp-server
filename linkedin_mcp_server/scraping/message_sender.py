@@ -131,6 +131,15 @@ _OWN_NAME_JS = r"""() => {
         .replace(/\s+/g, ' ').trim();
 }"""
 
+_THREAD_PARTICIPANT_READY_JS = r"""() => {
+    // The messaging page is an application shell: the thread, and with it the
+    // participant links, render a moment after the route is reached.
+    const root = document.querySelector('main') || document.body;
+    return Array.from(root.querySelectorAll('a[href*="/in/"]'))
+        .some(anchor => !anchor.closest('form'));
+}"""
+_THREAD_PARTICIPANT_TIMEOUT_MS = 10_000
+
 _THREAD_PARTICIPANT_JS = r"""(arg) => {
     // Who the open conversation is with. Two sources, in order:
     //  1. a profile linked from the page outside the message history and the
@@ -168,11 +177,18 @@ _THREAD_PARTICIPANT_JS = r"""(arg) => {
         const match = /^\/in\/([^/?#]+)(?:\/.*)?$/.exec(url.pathname);
         if (!match) continue;
         const path = `/in/${match[1]}/`;
-        const text = normalize(anchor.innerText || anchor.getAttribute('aria-label') || '');
+        // A header link stacks the headline under the name; the name is line one.
+        const text = normalize(
+            (anchor.innerText || '').split('\n')[0] || anchor.getAttribute('aria-label') || ''
+        );
         const inHistory = !!anchor.closest('[data-view-name="message-list-item"]');
         if (isOwn(text)) { dropped += 1; continue; }
         const group = inHistory ? groups.history : groups.header;
-        if (!group.has(path) || (!group.get(path) && text)) group.set(path, text);
+        const current = group.get(path);
+        // The shortest text is the bare name; longer ones append a headline.
+        if (current === undefined || (text && (!current || text.length < current.length))) {
+            group.set(path, text);
+        }
     }
     const describe = map => Array.from(map, ([path, name]) => ({path, name: name || null}));
     const header = describe(groups.header);
@@ -277,7 +293,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
             const scopes = [];
             let ancestor = element.parentElement;
             while (ancestor) {
-                if (ancestor.matches('form, dialog, [role="dialog"]')) {
+                if (ancestor.matches('form, dialog, [role="dialog"], main')) {
                     scopes.push(ancestor);
                 }
                 ancestor = ancestor.parentElement;
@@ -287,8 +303,14 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
         const localScopes = semanticAncestors(editor);
         if (localScopes.length === 0) return {status: 'missing_owner'};
 
+        // The owner scopes the send confirmation, so it must contain the message
+        // history as well as the editor: the compose overlay's dialog does; on a
+        // conversation page the history sits beside the composer form, inside
+        // main. Never wider than the innermost scope that holds both.
         const owner = localScopes.find(scope =>
             scope.matches('dialog, [role="dialog"]')
+        ) || localScopes.find(scope =>
+            scope.querySelector('[data-view-name="message-list-item"]')
         ) || localScopes[0];
         const outsideDraftAndHistory = element =>
             element !== editor &&
@@ -765,7 +787,7 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
         const scopes = [];
         let ancestor = element?.parentElement;
         while (ancestor) {
-            if (ancestor.matches('form, dialog, [role="dialog"]')) {
+            if (ancestor.matches('form, dialog, [role="dialog"], main')) {
                 scopes.push(ancestor);
             }
             ancestor = ancestor.parentElement;
@@ -949,7 +971,7 @@ _MESSAGE_COMPOSER_CLEANUP_JS = r"""(owner, arg) => {
     const currentChain = [];
     let ancestor = editor?.parentElement;
     while (ancestor) {
-        if (ancestor.matches('form, dialog, [role="dialog"]')) {
+        if (ancestor.matches('form, dialog, [role="dialog"], main')) {
             currentChain.push(ancestor);
         }
         ancestor = ancestor.parentElement;
@@ -1623,6 +1645,15 @@ class MessageSender:
         The second element says what the page exposed, for the failure message:
         which profiles were linked, or that none were.
         """
+        try:
+            await self._page.wait_for_function(
+                _THREAD_PARTICIPANT_READY_JS,
+                timeout=_THREAD_PARTICIPANT_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            pass
+        except Exception:
+            logger.debug("Could not wait for the conversation to render", exc_info=True)
         try:
             data = await self._page.evaluate(
                 _THREAD_PARTICIPANT_JS, {"ownName": own_name}

@@ -127,13 +127,22 @@
       "section": "message"
     },
     {
+      "arg": null,
+      "call": "reply_in_thread",
+      "kind": "wait_for_function",
+      "operation": "company_people_ready",
+      "program_digest": "b695b8949e78",
+      "section": "message",
+      "timeout_ms": 10000
+    },
+    {
       "arg": {
         "ownName": "Policy Viewer"
       },
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "thread_participant",
-      "program_digest": "51ed2430abbe",
+      "program_digest": "a44c1480c1d3",
       "section": "message"
     }
   ],

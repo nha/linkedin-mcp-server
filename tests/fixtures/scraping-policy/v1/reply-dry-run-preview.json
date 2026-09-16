@@ -129,13 +129,22 @@
       "section": "message"
     },
     {
+      "arg": null,
+      "call": "reply_in_thread",
+      "kind": "wait_for_function",
+      "operation": "company_people_ready",
+      "program_digest": "b695b8949e78",
+      "section": "message",
+      "timeout_ms": 10000
+    },
+    {
       "arg": {
         "ownName": "Policy Viewer"
       },
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "thread_participant",
-      "program_digest": "51ed2430abbe",
+      "program_digest": "a44c1480c1d3",
       "section": "message"
     },
     {
@@ -160,7 +169,7 @@
       "call": "reply_in_thread",
       "kind": "wait_for_function",
       "operation": "message_composer_ready",
-      "program_digest": "40729ddedf4a",
+      "program_digest": "78385026b279",
       "section": "message",
       "timeout_ms": null
     },
@@ -172,7 +181,7 @@
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "8d3b124562f3",
+      "program_digest": "73c96da898b8",
       "section": "message"
     },
     {
@@ -186,7 +195,7 @@
       "call": "reply_in_thread",
       "kind": "evaluate_handle",
       "operation": "message_composer_owner",
-      "program_digest": "46a2181c49e7",
+      "program_digest": "564d3ba5dd79",
       "section": "message"
     },
     {
@@ -206,7 +215,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_write",
-      "program_digest": "5907a5d32316",
+      "program_digest": "c65f511e8494",
       "section": "message"
     },
     {
@@ -219,7 +228,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_preview",
-      "program_digest": "d3782a9ff3d7",
+      "program_digest": "f262bf64daf8",
       "section": "message"
     },
     {
@@ -230,7 +239,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_cleanup",
-      "program_digest": "de5d4adfc6fc",
+      "program_digest": "636992077a16",
       "section": "message"
     },
     {
