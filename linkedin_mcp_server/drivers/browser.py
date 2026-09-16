@@ -335,6 +335,7 @@ async def _authenticate_existing_profile(
     except BaseException as exc:
         # BaseException so a cancelled startup still tears Chromium down. Left
         # running it would hold the profile that the caller is about to release.
+        logger.debug("Browser startup failed: %r", exc, exc_info=exc)
         closed, _ = await _close_holding_back_cancels(browser)
         if not closed:
             # The original failure is replaced deliberately: the caller's
