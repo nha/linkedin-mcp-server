@@ -43,6 +43,24 @@ def _linux_groups(markers: set[str]) -> set[int] | None:
     return groups
 
 
+def _darwin_groups(markers: set[str]) -> set[int] | None:
+    """Sandboxed macOS fallback: the marker is on the browser's argv (see process_tree)."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        from linkedin_mcp_server import darwin_procs
+
+        groups: set[int] = set()
+        for marker in markers:
+            for pid in darwin_procs.pids_with_argv(f"--linkedin-mcp-marker={marker}".encode("ascii")):
+                info = darwin_procs.bsd_info(pid)
+                if info is not None:
+                    groups.add(int(info.pbi_pgid))
+        return groups
+    except OSError:
+        return None
+
+
 def _ps_groups(markers: set[str]) -> set[int] | None:
     ps = next(
         (
@@ -62,7 +80,7 @@ def _ps_groups(markers: set[str]) -> set[int] | None:
             timeout=_SNAPSHOT_SECONDS,
         ).stdout
     except (OSError, subprocess.SubprocessError):
-        return None
+        return _darwin_groups(markers)
 
     needles = {
         f"{_BROWSER_PROCESS_MARKER}={marker}".encode() + b" " for marker in markers

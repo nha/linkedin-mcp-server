@@ -1679,8 +1679,45 @@ class TestTheMarkerScanSeparatesEmptyFromUnanswerable:
 
     @staticmethod
     def _bsd(monkeypatch: pytest.MonkeyPatch) -> None:
-        """Take the ``ps`` branch, which is the only one that can fail to answer."""
+        """Take the ``ps`` branch, which is the only one that can fail to answer.
+
+        A BSD without libproc: the sandboxed-macOS fallback is switched off so
+        these cases still describe a ``ps`` that is the only reader. The
+        fallback has its own test below.
+        """
         monkeypatch.setattr(process_tree.sys, "platform", "darwin")
+        monkeypatch.setattr(process_tree.darwin_procs, "available", lambda: False)
+
+    def test_a_ps_that_cannot_exec_is_answered_by_libproc_on_macos(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Seatbelt refuses to exec the setuid ``ps``; the argv marker still answers.
+
+        Measured 2026-09-22 under Agent Safehouse: ``/bin/ps`` fails with EPERM at
+        exec, ``proc_listpids`` and ``KERN_PROCARGS2`` (argv only) work. Without
+        this the scan stayed inconclusive, the lease was kept until exit and every
+        later call met ``BrowserBusyError``.
+        """
+        monkeypatch.setattr(process_tree.sys, "platform", "darwin")
+        monkeypatch.setattr(process_tree.Path, "is_file", lambda _self: True)
+
+        def run(*_args: Any, **_kwargs: Any) -> Any:
+            raise PermissionError(1, "Operation not permitted", "/bin/ps")
+
+        monkeypatch.setattr(process_tree.subprocess, "run", run)
+        monkeypatch.setattr(process_tree.darwin_procs, "available", lambda: True)
+        seen: list[bytes] = []
+
+        def pids_with_argv(needle: bytes) -> list[int]:
+            seen.append(needle)
+            return [902] if needle == b"--linkedin-mcp-marker=marker" else []
+
+        monkeypatch.setattr(process_tree.darwin_procs, "pids_with_argv", pids_with_argv)
+
+        assert process_tree._scan_marked_posix_processes("marker") == (
+            process_tree._MarkerScan((902,), True)
+        )
+        assert seen == [b"--linkedin-mcp-marker=marker"]
 
     def test_a_missing_ps_answers_nothing(self, monkeypatch: pytest.MonkeyPatch):
         self._bsd(monkeypatch)

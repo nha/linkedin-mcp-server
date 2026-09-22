@@ -38,6 +38,7 @@ from linkedin_mcp_server.process_tree import (
     contain_browser_launch,
     drain_browser_process_marker,
     forget_browser_process_marker,
+    argv_marker,
     new_browser_process_marker,
     remember_detached_process_groups,
 )
@@ -405,6 +406,13 @@ class BrowserManager:
                 raise TypeError("Browser launch env must be a mapping")
             browser_environment.update(self._process_environment)
             context_options["env"] = browser_environment
+            # The marker rides on the command line too: a Seatbelt sandbox hides
+            # other processes' environment but not their arguments, and ``ps``
+            # cannot exec there. See ``process_tree.argv_marker``.
+            context_options["args"] = [
+                *context_options.get("args", []),
+                argv_marker(self._process_marker).decode("ascii"),
+            ]
 
             # No ``user_agent`` here, deliberately. Patchright leaves the client
             # hints reporting the real browser, so an override contradicts

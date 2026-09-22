@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
+from linkedin_mcp_server import darwin_procs
+
 logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = os.name == "nt"
@@ -194,6 +196,19 @@ def new_browser_process_marker() -> tuple[str, dict[str, str]]:
     return marker, {_BROWSER_PROCESS_MARKER: marker}
 
 
+_ARGV_MARKER_SWITCH = "--linkedin-mcp-marker="
+
+
+def argv_marker(marker: str) -> bytes:
+    """The command-line switch that carries *marker* on the browser process.
+
+    Chromium ignores switches it does not know, so the switch changes nothing in
+    the browser. It exists for sandboxes that hide other processes' environment
+    (Seatbelt returns only argv from ``KERN_PROCARGS2``) but not their arguments.
+    """
+    return f"{_ARGV_MARKER_SWITCH}{marker}".encode("ascii")
+
+
 def _stat_fields(pid: int) -> list[str]:
     """The procfs ``stat`` fields of *pid*, from its run state onwards."""
     try:
@@ -239,7 +254,7 @@ def _ps_process_rows() -> dict[int, _ProcessRow]:
         None,
     )
     if ps is None:
-        return {}
+        return _darwin_rows_or_empty()
     try:
         snapshot = subprocess.run(
             [ps, "-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid=", "-o", "state="],
@@ -249,7 +264,9 @@ def _ps_process_rows() -> dict[int, _ProcessRow]:
             timeout=_POSIX_PROCESS_SNAPSHOT_SECONDS,
         ).stdout
     except (OSError, subprocess.SubprocessError):
-        return {}
+        # ``ps`` is setuid and a Seatbelt sandbox refuses to exec it; libproc
+        # answers the same question there. See ``darwin_procs``.
+        return _darwin_rows_or_empty()
 
     rows: dict[int, _ProcessRow] = {}
     for line in snapshot.splitlines():
@@ -268,6 +285,15 @@ def _ps_process_rows() -> dict[int, _ProcessRow]:
             continue
         rows[process] = (parent, group, None, fields[3][:1] or None)
     return rows
+
+
+def _darwin_rows_or_empty() -> dict[int, _ProcessRow]:
+    if not darwin_procs.available():
+        return {}
+    try:
+        return darwin_procs.process_rows()
+    except OSError:
+        return {}
 
 
 def _posix_process_rows() -> dict[int, _ProcessRow]:
@@ -362,6 +388,15 @@ def _scan_marked_posix_processes(marker: str) -> _MarkerScan:
             timeout=_POSIX_PROCESS_SNAPSHOT_SECONDS,
         ).stdout
     except (OSError, subprocess.SubprocessError) as exc:
+        if darwin_procs.available():
+            # Sandboxed macOS: ``ps`` cannot exec, but the launch also put the
+            # marker on the browser's command line, which libproc can read.
+            try:
+                found = darwin_procs.pids_with_argv(argv_marker(marker))
+            except OSError:
+                found = None
+            if found is not None:
+                return _MarkerScan(tuple(found), True)
         logger.debug(
             "The process snapshot for the browser launch marker failed (%s: %s), "
             "so nothing can be concluded from it.",
