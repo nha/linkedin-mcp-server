@@ -266,6 +266,7 @@ class LinkedInExtractor:
         *,
         confirm_send: bool,
         preview: bool = False,
+        attachments: list[str] | None = None,
     ) -> dict[str, Any]:
         """Reply inside an existing messaging thread with confirmation gating."""
         return await self._message_sender.reply_in_thread(
@@ -273,6 +274,7 @@ class LinkedInExtractor:
             message,
             confirm_send=confirm_send,
             preview=preview,
+            attachments=attachments,
         )
 
     async def message_job_poster(

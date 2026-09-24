@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import logging
+import os
 import re
 import time
 from typing import Any, Literal
@@ -124,6 +125,24 @@ _PROFILE_MESSAGE_TARGET_READY_JS = (
 _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
+# Attachments. LinkedIn caps a message attachment at 20 MB; stay well under it, and keep the
+# extension list to what a recruiter thread actually carries.
+_ATTACHMENT_MAX_FILES = 5
+_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
+_ATTACHMENT_SUFFIXES = {".pdf", ".doc", ".docx", ".png", ".jpg", ".jpeg", ".txt", ".csv"}
+_ATTACHMENT_READY_TIMEOUT_SECONDS = 25.0
+# The composer shows one chip per accepted file, carrying the file name. That is the only
+# signal that the upload landed, so it is what we wait for before allowing submission.
+_ATTACHMENT_CHIPS_JS = """
+(node) => {
+  const text = node.innerText || "";
+  const inputs = Array.from(node.querySelectorAll('input[type=file]'));
+  return {
+    text,
+    staged: inputs.reduce((n, el) => n + ((el.files && el.files.length) || 0), 0),
+  };
+}
+"""
 
 _OWN_NAME_JS = r"""() => {
     const heading = document.querySelector('main h1');
@@ -1121,6 +1140,33 @@ _PROFILE_URN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 
 
+def _invalid_attachments_reason(paths: list[str]) -> str | None:
+    """Refuse an attachment list before a browser is touched."""
+    if not paths:
+        return None
+    if len(paths) > _ATTACHMENT_MAX_FILES:
+        return f"at most {_ATTACHMENT_MAX_FILES} files can be attached at once."
+    total = 0
+    for path in paths:
+        if not isinstance(path, str) or not os.path.isabs(path):
+            return "each attachment must be an absolute file path."
+        if not os.path.isfile(path):
+            return f"no such file: {path}"
+        suffix = os.path.splitext(path)[1].lower()
+        if suffix not in _ATTACHMENT_SUFFIXES:
+            return (
+                f"{suffix or 'that file type'} is not an allowed attachment "
+                f"({', '.join(sorted(_ATTACHMENT_SUFFIXES))})."
+            )
+        total += os.path.getsize(path)
+    if total > _ATTACHMENT_MAX_BYTES:
+        return (
+            f"the attachments total {total} bytes, over the "
+            f"{_ATTACHMENT_MAX_BYTES} byte limit."
+        )
+    return None
+
+
 @dataclass(frozen=True)
 class _ProfileMessageTarget:
     profile_path: str
@@ -1407,6 +1453,67 @@ class MessageSender:
                 return False
             await asyncio.sleep(min(0.05, remaining))
 
+    async def _attach_files_to_composer(
+        self,
+        paths: list[str],
+        *,
+        owner: Any,
+    ) -> str:
+        """Put files on the one file input that belongs to the verified composer.
+
+        The input is resolved inside the pinned owner node, never on the page at large:
+        the whole point of the owner is that everything typed or attached lands in the
+        conversation whose recipient was verified. A composer exposing no single usable
+        input fails closed rather than guessing.
+        """
+        element = owner.as_element()
+        if element is None:
+            return "owner_lost"
+        try:
+            inputs = await element.query_selector_all("input[type=file]")
+        except Exception:
+            logger.debug("Could not look for a file input", exc_info=True)
+            return "failed"
+        if not inputs:
+            return "no_input"
+        candidates = []
+        for handle in inputs:
+            try:
+                accept = (await handle.get_attribute("accept")) or ""
+            except Exception:
+                accept = ""
+            lowered = accept.lower()
+            # An image-only input is the photo button, not the attachment button.
+            if lowered and "image/" in lowered and "pdf" not in lowered and "*" not in lowered:
+                continue
+            candidates.append(handle)
+        if len(candidates) != 1:
+            return "ambiguous" if candidates else "no_input"
+        try:
+            await candidates[0].set_input_files(paths)
+        except Exception:
+            logger.debug("Could not hand the files to the composer", exc_info=True)
+            return "failed"
+        names = [os.path.basename(path) for path in paths]
+        deadline = time.monotonic() + _ATTACHMENT_READY_TIMEOUT_SECONDS
+        while True:
+            try:
+                state = await owner.evaluate(_ATTACHMENT_CHIPS_JS)
+            except Exception:
+                logger.debug("Could not read the composer attachments", exc_info=True)
+                return "failed"
+            text = state.get("text") or ""
+            if all(name in text for name in names):
+                return "attached"
+            if time.monotonic() >= deadline:
+                logger.debug(
+                    "Attachment chips never showed %s (staged=%s)",
+                    names,
+                    state.get("staged"),
+                )
+                return "not_ready"
+            await asyncio.sleep(0.25)
+
     async def _submit_verified_message(
         self,
         message: str,
@@ -1654,6 +1761,7 @@ class MessageSender:
         *,
         confirm_send: bool,
         preview: bool = False,
+        attachments: list[str] | None = None,
     ) -> dict[str, Any]:
         """Reply inside an existing messaging thread with confirmation gating.
 
@@ -1669,6 +1777,12 @@ class MessageSender:
         if refusal is not None:
             return refusal
         thread_url = contracts.message_thread_url(thread_id)
+        paths = list(attachments or [])
+        reason = _invalid_attachments_reason(paths)
+        if reason is not None:
+            return contracts.message_action_result(
+                thread_url, "invalid_attachments", reason
+            )
 
         own_name = await self._read_own_name()
         await self._navigator._navigate_to_page(thread_url)
@@ -1703,6 +1817,7 @@ class MessageSender:
             confirm_send=confirm_send,
             preview=preview,
             label=thread_id,
+            attachments=paths,
         )
         result["recipient_profile_path"] = target.profile_path
         if target.display_name:
@@ -1892,6 +2007,7 @@ class MessageSender:
         confirm_send: bool,
         preview: bool,
         label: str,
+        attachments: list[str] | None = None,
     ) -> dict[str, Any]:
         """Verify the pinned composer on the current page, then type and submit.
 
@@ -2046,6 +2162,26 @@ class MessageSender:
                         "The verified message editor could not accept the message.",
                         recipient_selected=recipient_selected,
                     )
+
+                if attachments:
+                    attach_result = await self._attach_files_to_composer(
+                        list(attachments), owner=owner
+                    )
+                    if not url_is_safe(self._page.url):
+                        return contracts.message_action_result(
+                            self._page.url,
+                            "recipient_resolution_failed",
+                            "The messaging URL changed while attaching files.",
+                            recipient_selected=recipient_selected,
+                        )
+                    if attach_result != "attached":
+                        return contracts.message_action_result(
+                            self._page.url,
+                            "attachment_failed",
+                            "The files were not attached to the verified composer "
+                            f"({attach_result}); nothing was sent.",
+                            recipient_selected=recipient_selected,
+                        )
 
                 if not await self._wait_for_verified_submit(
                     message,

@@ -471,6 +471,7 @@ async def test_facade_reply_in_thread_forwards_every_argument(mock_page):
             "First\n\nSecond",
             confirm_send=False,
             preview=True,
+            attachments=["/tmp/cv.pdf"],
         )
 
     assert result is expected
@@ -479,6 +480,7 @@ async def test_facade_reply_in_thread_forwards_every_argument(mock_page):
         "First\n\nSecond",
         confirm_send=False,
         preview=True,
+        attachments=["/tmp/cv.pdf"],
     )
 
 

@@ -347,6 +347,7 @@ def register_messaging_tools(
         confirm_send: bool,
         ctx: Context,
         preview: bool = False,
+        attachments: list[str] | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -374,6 +375,12 @@ def register_messaging_tools(
             preview: With confirm_send False, also type the message into the
                 verified composer, return the editor text as ``preview`` and
                 clear it again. Nothing is submitted.
+            attachments: Absolute paths of files to attach, at most 5 and 10 MB
+                in total, with a .pdf, .doc, .docx, .png, .jpg, .jpeg, .txt or
+                .csv extension. The files go on the file input inside the same
+                verified composer as the text, and the reply is sent only once
+                the composer shows a chip for every one of them; otherwise the
+                call returns ``attachment_failed`` and sends nothing.
 
         Returns:
             Dict with url, status, message, recipient_selected, sent,
@@ -398,6 +405,7 @@ def register_messaging_tools(
                 message,
                 confirm_send=confirm_send,
                 preview=preview,
+                attachments=attachments,
             )
 
             try:

@@ -62,7 +62,7 @@
       },
       "reply_in_thread": {
         "coroutine": true,
-        "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False) -> 'dict[str, Any]'"
+        "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False, attachments: 'list[str] | None' = None) -> 'dict[str, Any]'"
       },
       "scrape_company": {
         "coroutine": true,
@@ -505,6 +505,21 @@
         "input": {
           "additionalProperties": false,
           "properties": {
+            "attachments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Absolute paths of files to attach, at most 5 and 10 MB\nin total, with a .pdf, .doc, .docx, .png, .jpg, .jpeg, .txt or\n.csv extension. The files go on the file input inside the same\nverified composer as the text, and the reply is sent only once\nthe composer shows a chip for every one of them; otherwise the\ncall returns ``attachment_failed`` and sends nothing."
+            },
             "confirm_send": {
               "description": "Must be True to send the message",
               "type": "boolean"

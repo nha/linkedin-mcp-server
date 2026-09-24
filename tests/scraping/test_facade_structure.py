@@ -50,7 +50,7 @@ PUBLIC_SIGNATURES = {
     "search_people": "(self, keywords: 'str', location: 'str | None' = None, network: 'list[str] | None' = None, current_company: 'str | None' = None) -> 'dict[str, Any]'",
     "search_posts": "(self, keywords: 'str', date_posted: 'str | None' = None, max_pages: 'int' = 3) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None, preview: 'bool' = False) -> 'dict[str, Any]'",
-    "reply_in_thread": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False) -> 'dict[str, Any]'",
+    "reply_in_thread": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False, attachments: 'list[str] | None' = None) -> 'dict[str, Any]'",
     "message_job_poster": "(self, job_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False) -> 'dict[str, Any]'",
 }
 
@@ -100,7 +100,7 @@ DELEGATE_CALLS = {
     "search_people": "self._person.search_people(keywords, location=location, network=network, current_company=current_company)",
     "search_posts": "self._posts.search_posts(keywords, date_posted=date_posted, max_pages=max_pages)",
     "send_message": "self._message_sender.send_message(linkedin_username, message, confirm_send=confirm_send, profile_urn=profile_urn, preview=preview)",
-    "reply_in_thread": "self._message_sender.reply_in_thread(thread_id, message, confirm_send=confirm_send, preview=preview)",
+    "reply_in_thread": "self._message_sender.reply_in_thread(thread_id, message, confirm_send=confirm_send, preview=preview, attachments=attachments)",
     "message_job_poster": "self._message_sender.message_job_poster(job_id, message, confirm_send=confirm_send, preview=preview)",
 }
 
