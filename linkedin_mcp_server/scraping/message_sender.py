@@ -1476,19 +1476,41 @@ class MessageSender:
             return "failed"
         if not inputs:
             return "no_input"
-        candidates = []
+        described: list[tuple[Any, str]] = []
         for handle in inputs:
-            try:
-                accept = (await handle.get_attribute("accept")) or ""
-            except Exception:
-                accept = ""
-            lowered = accept.lower()
-            # An image-only input is the photo button, not the attachment button.
-            if lowered and "image/" in lowered and "pdf" not in lowered and "*" not in lowered:
-                continue
-            candidates.append(handle)
+            parts = []
+            for attribute in ("accept", "id", "name", "class"):
+                try:
+                    value = await handle.get_attribute(attribute)
+                except Exception:
+                    value = None
+                if value:
+                    parts.append(f"{attribute}={value}")
+            described.append((handle, " ".join(parts).lower()))
+
+        def pick(predicate: Any) -> list[Any]:
+            return [handle for handle, text in described if predicate(text)]
+
+        # The composer carries several file inputs: the paperclip, the photo button, and
+        # whatever else LinkedIn hangs off the form. Name the document one, in order of how
+        # sure each signal is, and only then give up.
+        candidates = pick(lambda text: "pdf" in text or ".doc" in text)
+        if not candidates:
+            candidates = pick(
+                lambda text: "file" in text
+                and not any(
+                    word in text for word in ("image", "photo", "video", "gif", "camera")
+                )
+            )
+        if not candidates:
+            candidates = pick(
+                lambda text: "image/" not in text and "video/" not in text
+            )
         if len(candidates) != 1:
-            return "ambiguous" if candidates else "no_input"
+            if not described:
+                return "no_input"
+            summary = " | ".join(text or "(no attributes)" for _, text in described)
+            return f"ambiguous: {summary}"
         try:
             await candidates[0].set_input_files(paths)
         except Exception:
