@@ -642,7 +642,9 @@ class TestInviteDialog:
         premium_link.inner_text = AsyncMock(return_value="fallback")
         premium_link.first = premium_link
         mock_page.locator.return_value = premium_link
-        mock_page.evaluate = AsyncMock(return_value=PREMIUM_MESSAGE)
+        # First evaluate: is there a usable note field (no, this is a real block).
+        # Second: the dialog text itself.
+        mock_page.evaluate = AsyncMock(side_effect=[False, PREMIUM_MESSAGE])
 
         result = await actions._get_premium_upsell_message(timeout=1234)
 
@@ -651,6 +653,23 @@ class TestInviteDialog:
             'dialog[open] a[href*="/premium/"], [role="dialog"] a[href*="/premium/"]'
         )
         premium_link.wait_for.assert_awaited_once_with(state="visible", timeout=1234)
+
+    async def test_premium_banner_beside_a_working_textarea_is_not_a_block(self, mock_page):
+        """An upsell advert inside a working note dialog is not an exhausted quota.
+
+        LinkedIn shows "Send unlimited, longer invites with Premium" inside the ordinary
+        invite dialog, beside a textarea and a counter reading "3 personalized invitations
+        remaining". Reading that as a block refuses an invitation the account may send.
+        """
+        actions = _actions(mock_page)
+        premium_link = MagicMock()
+        premium_link.wait_for = AsyncMock(return_value=None)
+        premium_link.is_visible = AsyncMock(return_value=True)
+        premium_link.first = premium_link
+        mock_page.locator.return_value = premium_link
+        mock_page.evaluate = AsyncMock(return_value=True)  # a usable textarea is present
+
+        assert await actions._get_premium_upsell_message() is None
 
     async def test_reports_premium_after_add_note(self, mock_page):
         """Add-note Premium upsell is a note-limit block, not no-dialog."""

@@ -384,6 +384,31 @@ class ConnectionActions:
             except Exception:
                 return None
 
+        # A Premium link inside the dialog is not a block by itself: LinkedIn now puts an
+        # upsell banner ("Send unlimited, longer invites with Premium") inside the ordinary
+        # note dialog, next to a working textarea and a counter that still says how many
+        # personalized invitations remain. Treating that as an exhausted quota refuses to
+        # send an invitation the account is perfectly entitled to send, which is what it did
+        # on 2026-09-25 with three invitations left. The block is the absence of a usable
+        # textarea, not the presence of an advert.
+        try:
+            has_usable_note_field = await self._session.page.evaluate(
+                """() => {
+                    const link = document.querySelector(
+                        'dialog[open] a[href*="/premium/"], [role="dialog"] a[href*="/premium/"]'
+                    );
+                    const dialog = link?.closest('dialog,[role="dialog"]');
+                    if (!dialog) return false;
+                    const field = dialog.querySelector('textarea, [contenteditable="true"]');
+                    return !!field && !field.disabled && !field.readOnly;
+                }"""
+            )
+        except Exception:
+            logger.debug("Could not check the invite dialog for a note field", exc_info=True)
+            has_usable_note_field = False
+        if has_usable_note_field:
+            return None
+
         try:
             message = await self._session.page.evaluate(
                 """() => {
