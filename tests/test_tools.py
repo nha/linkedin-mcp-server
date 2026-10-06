@@ -843,6 +843,31 @@ class TestJobTools:
         mock_extractor.get_saved_jobs.assert_awaited_once_with(max_pages=2)
 
 
+class TestGetInvitationsTool:
+    async def test_get_invitations_reads_the_invitation_manager(self, mock_context):
+        from linkedin_mcp_server.scraping.contracts import ExtractedSection
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        mock_extractor = MagicMock()
+        mock_extractor.extract_page = AsyncMock(
+            return_value=ExtractedSection(
+                text="Dylan Example\nAccept\nIgnore",
+                references=[{"kind": "person", "url": "/in/dylan-example/"}],
+            )
+        )
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "get_invitations")
+        result = await tool_fn(mock_context, extractor=mock_extractor)
+
+        assert result["sections"]["invitations"].startswith("Dylan Example")
+        assert result["references"]["invitations"][0]["url"] == "/in/dylan-example/"
+        mock_extractor.extract_page.assert_awaited_once_with(
+            "https://www.linkedin.com/mynetwork/invitation-manager/received/",
+            section_name="invitations",
+        )
+
+
 class TestGetSidebarProfilesTool:
     async def test_get_sidebar_profiles_success(self, mock_context):
         expected = {
@@ -1669,6 +1694,7 @@ class TestToolTimeouts:
         tool_names = (
             "get_person_profile",
             "connect_with_person",
+            "get_invitations",
             "get_sidebar_profiles",
             "search_people",
             "get_company_profile",
@@ -1700,6 +1726,7 @@ class TestToolTimeouts:
             "get_person_profile",
             "get_my_profile",
             "connect_with_person",
+            "get_invitations",
             "get_sidebar_profiles",
             "search_people",
             "get_company_profile",

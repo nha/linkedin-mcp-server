@@ -327,6 +327,17 @@
           "type": "object"
         }
       },
+      "get_invitations": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "get_job_details": {
         "input": {
           "additionalProperties": false,

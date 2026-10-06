@@ -19,7 +19,11 @@ from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.scraping import parse_person_sections
-from linkedin_mcp_server.scraping.contracts import FilterValidationError
+from linkedin_mcp_server.scraping.contracts import (
+    RATE_LIMITED_SECTION_TEXT,
+    FilterValidationError,
+    rate_limited_section_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +291,51 @@ def register_person_tools(
                 raise_tool_error(relogin_exc, "connect_with_person")
         except Exception as e:
             raise_tool_error(e, "connect_with_person")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Get Invitations",
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"person", "scraping"},
+        exclude_args=["extractor"],
+    )
+    async def get_invitations(
+        ctx: Context,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        List the connection invitations received and not yet answered.
+
+        Reads LinkedIn's invitation manager. Each sender's profile link is in
+        ``references``; accept one with connect_with_person on that profile,
+        which clicks Accept when the profile shows an incoming invitation.
+
+        Returns:
+            Dict with url, sections (invitations -> raw text), and optional references.
+        """
+        try:
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="get_invitations"
+            )
+            url = "https://www.linkedin.com/mynetwork/invitation-manager/received/"
+            extracted = await extractor.extract_page(url, section_name="invitations")
+            result: dict[str, Any] = {"url": url, "sections": {}}
+            if extracted.text and extracted.text != RATE_LIMITED_SECTION_TEXT:
+                result["sections"]["invitations"] = extracted.text
+                if extracted.references:
+                    result["references"] = {"invitations": extracted.references}
+            elif extracted.text == RATE_LIMITED_SECTION_TEXT:
+                result["section_errors"] = {"invitations": rate_limited_section_error()}
+            elif extracted.error:
+                result["section_errors"] = {"invitations": extracted.error}
+            return result
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "get_invitations")
+        except Exception as e:
+            raise_tool_error(e, "get_invitations")  # NoReturn
 
     @mcp.tool(
         timeout=tool_timeout,
