@@ -142,7 +142,8 @@ _PROFILE_MESSAGE_TARGET_JS = r"""() => {
 _PROFILE_MESSAGE_TARGET_READY_JS = (
     f"() => ({_PROFILE_MESSAGE_TARGET_JS})().status === 'resolved'"
 )
-_PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
+# The nested top card (2026-10-15) hydrates 2-5 s after `main` appears.
+_PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 10_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
 # Attachments. LinkedIn caps a message attachment at 20 MB; stay well under it, and keep the
