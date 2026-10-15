@@ -1244,6 +1244,11 @@ def _normalize_profile_urn(value: str | None) -> str | None:
 
 def _profile_path_from_url(value: str) -> str | None:
     parsed = _safe_linkedin_url(value)
+    # LinkedIn appends this to every profile it serves since 2026-10-15; any
+    # other query still fails closed.
+    if parsed is not None and parsed.query == "isSelfProfile=false":
+        parsed = parsed._replace(query="")
+        value = parsed.geturl()
     if parsed is None or parsed.query or not _PROFILE_PATH_RE.fullmatch(parsed.path):
         return None
     try:
