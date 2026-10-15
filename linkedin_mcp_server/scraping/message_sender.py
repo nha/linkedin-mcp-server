@@ -82,19 +82,39 @@ _PROFILE_MESSAGE_TARGET_JS = r"""() => {
     const main = document.querySelector('main');
     if (!main) return {status: 'unresolved'};
 
-    const section = Array.from(main.children).find(
-        element => element.matches('section') && visible(element)
-    );
-    if (!section) return {status: 'unresolved'};
-    const headings = Array.from(section.querySelectorAll('h1')).filter(
-        heading => visible(heading) && heading.closest('section') === section
-    );
-    const visibleComposeAnchors = Array.from(
+    // The top card is the one visible section of main with a compose link of
+    // its own and a single name heading that opens the page title (« Malik
+    // Jamali | LinkedIn »). It was main's first child section; since
+    // 2026-10-15 it sits nested in wrapper divs and sections with the name in
+    // an h2, the « Explore Premium profiles » sidebar inside main carries its
+    // own Message links, and the sticky header outside main another one.
+    const ownAnchors = section => Array.from(
         section.querySelectorAll('a[href*="/messaging/compose/"]')
     ).filter(anchor => visible(anchor) && anchor.closest('section') === section);
+    const names = section => {
+        const h1 = Array.from(section.querySelectorAll('h1')).filter(visible);
+        return h1.length > 0
+            ? h1
+            : Array.from(section.querySelectorAll('h2')).filter(visible);
+    };
+    const title = normalize(document.title).replace(/^\(\d+\+?\)\s*/, '');
+    const titled = section => {
+        const heading = names(section);
+        const name = heading.length === 1 ? normalize(heading[0].innerText) : '';
+        return !!name && (title === name || title.startsWith(name + ' |'));
+    };
+    const sections = Array.from(main.querySelectorAll('section')).filter(visible);
+    const cards = sections.filter(
+        element => ownAnchors(element).length > 0 && titled(element)
+    );
+    if (cards.length > 1) return {status: 'unresolved'};
+    const section = cards[0] || sections.find(titled);
+    if (!section) return {status: 'unresolved'};
+    const named = names(section);
+    const visibleComposeAnchors = ownAnchors(section);
     const composeAnchors = visibleComposeAnchors.filter(active);
     if (
-        headings.length !== 1 ||
+        named.length !== 1 ||
         composeAnchors.length > 1 ||
         (composeAnchors.length === 1 && visibleComposeAnchors.length !== 1)
     ) {
@@ -113,7 +133,7 @@ _PROFILE_MESSAGE_TARGET_JS = r"""() => {
         status: 'resolved',
         pageUrl: window.location.href,
         displayName: normalize(
-            headings[0].innerText || headings[0].textContent || ''
+            named[0].innerText || named[0].textContent || ''
         ),
         composeHrefs: [composeHref],
     };
