@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -3938,7 +3939,7 @@ def login_required_error() -> LoginRequiredError | None:
 #: A run of LOGIN_COMMAND, at most this often: a failing one (signed out of the
 #: browser too) must not run again on every call.
 _LOGIN_RUN_EVERY_SECONDS = 300.0
-_LOGIN_RUN_TIMEOUT_SECONDS = 150.0
+_LOGIN_RUN_TIMEOUT_SECONDS = 300.0
 _login_run_at: float | None = None
 _login_run_detail: str | None = None
 _login_run_lock = asyncio.Lock()
@@ -3978,6 +3979,9 @@ async def _run_login_command(command: str) -> str | None:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            # Its own group, so a timeout stops what it started too (an import,
+            # a browser), after a TERM it can clean up on.
+            start_new_session=True,
         )
     except (OSError, ValueError) as exc:
         return f"could not start it: {exc}"
@@ -3986,8 +3990,12 @@ async def _run_login_command(command: str) -> str | None:
             proc.communicate(), timeout=_LOGIN_RUN_TIMEOUT_SECONDS
         )
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
+        for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, sig)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(proc.wait(), timeout=grace)
+                break
         return f"it did not finish in {_LOGIN_RUN_TIMEOUT_SECONDS:.0f} s"
     if proc.returncode == 0:
         return None

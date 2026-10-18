@@ -326,3 +326,31 @@ async def test_a_failing_command_is_named_with_its_output_and_not_rerun(
     assert str(again) == str(first)
     assert (tmp_path / "runs.txt").read_text() == "x\n"
     assert no_login == []
+
+
+async def test_a_command_past_its_timeout_is_stopped_with_its_children(
+    no_login, tmp_path, monkeypatch
+):
+    """A timeout stops the whole group, so an import it started does not run on."""
+    import os
+    import shlex
+
+    import linkedin_mcp_server.bootstrap as bootstrap
+
+    pid_file = tmp_path / "child.pid"
+    script = f"sleep 30 & echo $! > {shlex.quote(str(pid_file))}; wait"
+    monkeypatch.setattr(bootstrap, "_LOGIN_RUN_TIMEOUT_SECONDS", 0.5)
+
+    detail = await bootstrap._run_login_command(f"sh -c {shlex.quote(script)}")
+
+    assert "did not finish" in detail
+    child = int(pid_file.read_text())
+    for _ in range(50):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        await asyncio.sleep(0.1)
+    else:
+        raise AssertionError("the command's child outlived the timeout")
+    assert no_login == []
