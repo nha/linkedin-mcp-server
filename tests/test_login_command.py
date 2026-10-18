@@ -186,6 +186,56 @@ async def test_a_dead_session_that_cannot_be_retired_is_still_refused(
     assert no_login == []
 
 
+async def test_a_login_that_lands_while_retiring_fails_is_not_marked_dead(
+    no_login, monkeypatch
+):
+    """The generation the caller saw fail is the dead one, not whatever a login
+    wrote to disk while retiring it failed."""
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.drivers.browser import get_profile_dir
+    from linkedin_mcp_server.exceptions import (
+        AuthenticationBootstrapFailedError,
+        LoginRequiredError,
+    )
+
+    get_config()
+    _write_session(get_profile_dir())
+    seen = bootstrap.current_login_generation()
+
+    def login_lands_then_fails(*args, **kwargs):
+        _write_session(get_profile_dir())
+        raise AuthenticationBootstrapFailedError("profile in use")
+
+    monkeypatch.setattr(
+        bootstrap, "_force_move_auth_state_aside", login_lands_then_fails
+    )
+    with pytest.raises(LoginRequiredError):
+        await bootstrap.invalidate_auth_and_trigger_relogin(stale_generation=seen)
+    assert bootstrap.current_login_generation() != seen
+    assert bootstrap.login_required_error() is None
+    await bootstrap.start_login_if_needed()  # the new session is used
+    assert no_login == []
+
+
+async def test_start_login_refuses_a_rejected_session_still_on_disk(
+    no_login, monkeypatch
+):
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.drivers.browser import get_profile_dir
+    from linkedin_mcp_server.exceptions import LoginRequiredError
+
+    get_config()
+    _write_session(get_profile_dir())
+    monkeypatch.setattr(
+        bootstrap, "_dead_generation", bootstrap.current_login_generation()
+    )
+    with pytest.raises(LoginRequiredError):
+        await bootstrap.start_login_if_needed()
+    assert no_login == []
+
+
 async def test_a_session_that_appeared_meanwhile_is_used(no_login):
     import linkedin_mcp_server.bootstrap as bootstrap
     from linkedin_mcp_server.config import get_config
