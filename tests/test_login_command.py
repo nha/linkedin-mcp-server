@@ -204,3 +204,66 @@ def test_without_login_command_nothing_changes(monkeypatch):
     config = get_config()
     assert config.browser.login_command is None
     assert config.browser.headless is False
+
+
+async def test_a_dead_session_leaves_the_profile_free_for_other_servers(
+    no_login, monkeypatch
+):
+    """One server per agent session shares the profile by taking turns on its
+    lease. A login used to hold that lease for up to its 30-minute timeout, so
+    one session's pending sign-in blocked every other session's sends. Now the
+    expired session fails every concurrent call and the profile is free again
+    at once, for another process as much as this one."""
+    import subprocess
+    import sys
+
+    import linkedin_mcp_server.bootstrap as bootstrap
+    import linkedin_mcp_server.dependencies as dependencies
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.core.exceptions import AuthenticationError
+    from linkedin_mcp_server.drivers.browser import get_profile_dir
+    from linkedin_mcp_server.server import create_mcp_server
+
+    get_config()
+    _write_session(get_profile_dir())
+
+    async def a_browser():
+        return object()
+
+    async def rejected():
+        raise AuthenticationError("ERR_TOO_MANY_REDIRECTS")
+
+    monkeypatch.setattr(dependencies, "get_or_create_browser", a_browser)
+    monkeypatch.setattr(dependencies, "ensure_authenticated", rejected)
+    # The managed browser counts as installed, so the call reaches LinkedIn.
+    monkeypatch.setattr(bootstrap, "_uses_custom_chrome", lambda: True)
+
+    async with Client(create_mcp_server()) as client:
+        results = await asyncio.gather(
+            *(
+                client.call_tool("send_message", _args_for_send(), raise_on_error=False)
+                for _ in range(4)
+            )
+        )
+    texts = {r.content[0].text for r in results}
+    assert len(texts) == 1 and COMMAND in texts.pop()
+
+    other_server = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from pathlib import Path; "
+            "from linkedin_mcp_server.profile_lease import get_profile_lease; "
+            "print(get_profile_lease(Path(sys.argv[1])).try_acquire())",
+            str(get_profile_dir()),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert other_server.stdout.strip() == "True", other_server.stderr
+    assert no_login == []
+
+
+def _args_for_send() -> dict:
+    return {"linkedin_username": "someone", "message": "hello", "confirm_send": True}
