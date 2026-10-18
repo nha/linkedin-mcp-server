@@ -63,10 +63,17 @@ def no_login(isolate_profile_dir, monkeypatch):
     monkeypatch.setattr(bootstrap, "_run_login_flow", record("login_flow"))
     monkeypatch.setattr(bootstrap, "_try_auto_import_session", record("auto_import"))
     monkeypatch.setattr(dependencies, "get_or_create_browser", record("browser_launch"))
-    # As if the command had just run: these tests never execute it. The ones
-    # about running it set this back to None.
+    # As if the command had just run and failed (with no output): these tests
+    # never execute it. The ones about running it set _login_run_at to None.
     monkeypatch.setattr(bootstrap, "_login_run_at", time.monotonic())
-    monkeypatch.setattr(bootstrap, "_login_run_detail", None)
+    monkeypatch.setattr(bootstrap, "_login_run_detail", "")
+    real_run = bootstrap._run_login_command
+
+    async def run_unless_fixture_command(command):
+        # COMMAND names a repo that does not exist; it fails, with no output.
+        return "" if command == COMMAND else await real_run(command)
+
+    monkeypatch.setattr(bootstrap, "_run_login_command", run_unless_fixture_command)
     return started
 
 
@@ -404,3 +411,89 @@ async def test_a_command_past_its_timeout_is_stopped_with_its_children(
     else:
         raise AssertionError("the command's child outlived the timeout")
     assert no_login == []
+
+
+async def test_a_session_that_dies_after_a_good_sign_in_is_renewed_at_once(
+    no_login, tmp_path, monkeypatch
+):
+    """Only a failure throttles the command: a good run does not."""
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+
+    session = tmp_path / "session"
+    monkeypatch.setenv(
+        "LOGIN_COMMAND", _command(tmp_path, f"open({str(session)!r}, 'w')")
+    )
+    get_config()
+    monkeypatch.setattr(bootstrap, "_login_run_at", None)
+    monkeypatch.setattr(bootstrap, "_auth_ready", lambda *a, **k: session.exists())
+
+    assert await bootstrap.sign_in_or_error() is None
+    session.unlink()  # LinkedIn rejected it a minute later
+    assert await bootstrap.sign_in_or_error() is None
+    assert (tmp_path / "runs.txt").read_text() == "x\nx\n"
+    assert no_login == []
+
+
+async def test_a_command_that_exits_0_with_no_session_says_so_and_waits(
+    no_login, tmp_path, monkeypatch
+):
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+
+    monkeypatch.setenv("LOGIN_COMMAND", _command(tmp_path, "pass"))
+    get_config()
+    monkeypatch.setattr(bootstrap, "_login_run_at", None)
+
+    first = await bootstrap.sign_in_or_error()
+    again = await bootstrap.sign_in_or_error()
+    assert "exited 0 but left no usable session" in str(first)
+    assert str(again) == str(first)
+    assert (tmp_path / "runs.txt").read_text() == "x\n"
+
+
+async def test_a_cancelled_call_stops_the_command_and_its_children(no_login, tmp_path):
+    import os
+    import shlex
+
+    import linkedin_mcp_server.bootstrap as bootstrap
+
+    pid_file = tmp_path / "child.pid"
+    script = f"sleep 30 & echo $! > {shlex.quote(str(pid_file))}; wait"
+    task = asyncio.create_task(
+        bootstrap._run_login_command(f"sh -c {shlex.quote(script)}")
+    )
+    for _ in range(50):
+        if pid_file.exists() and pid_file.read_text().strip():
+            break
+        await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    child = int(pid_file.read_text())
+    for _ in range(50):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        await asyncio.sleep(0.1)
+    else:
+        raise AssertionError("the command's child outlived the cancelled call")
+
+
+async def test_a_child_left_running_does_not_hold_the_call(no_login, tmp_path):
+    """Exit 0 counts when the command exits, not when its output closes."""
+    import os
+    import shlex
+    import signal
+    import time
+
+    import linkedin_mcp_server.bootstrap as bootstrap
+
+    started = time.monotonic()
+    pid_file = tmp_path / "child.pid"
+    script = f"sleep 30 & echo $! > {shlex.quote(str(pid_file))}; exit 0"
+    detail = await bootstrap._run_login_command(f"sh -c {shlex.quote(script)}")
+    assert detail is None
+    assert time.monotonic() - started < 5
+    os.kill(int(pid_file.read_text()), signal.SIGKILL)

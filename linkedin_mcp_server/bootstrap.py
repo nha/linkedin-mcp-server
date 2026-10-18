@@ -3956,15 +3956,28 @@ async def sign_in_or_error() -> LoginRequiredError | None:
     """
     global _login_run_at, _login_run_detail
     command = get_config().browser.login_command
-    if not command or login_required_error() is None:
+    if not command:
+        return None
+    if login_required_error() is None:
+        # Signed in, by the command or by hand: an old failure is no longer news,
+        # and the next dead session gets a run at once.
+        _login_run_detail = None
         return None
     async with _login_run_lock:
         if login_required_error() is None:
             return None
         now = time.monotonic()
-        if _login_run_at is None or now - _login_run_at >= _LOGIN_RUN_EVERY_SECONDS:
+        # Throttled only after a failure: a session that dies soon after a good
+        # sign-in is renewed at once.
+        if (
+            _login_run_at is None
+            or _login_run_detail is None
+            or now - _login_run_at >= _LOGIN_RUN_EVERY_SECONDS
+        ):
             _login_run_at = now
             _login_run_detail = await _run_login_command(command)
+            if _login_run_detail is None and login_required_error() is not None:
+                _login_run_detail = "it exited 0 but left no usable session"
     return login_required_error()
 
 
@@ -3972,34 +3985,42 @@ async def _run_login_command(command: str) -> str | None:
     """Run *command* without a shell; ``None`` on success, else its last lines."""
     import shlex
 
+    import tempfile
+
     logger.info("No LinkedIn session; running LOGIN_COMMAND to sign in")
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *shlex.split(command),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            # Its own group, so a timeout stops what it started too (an import,
-            # a browser), after a TERM it can clean up on.
-            start_new_session=True,
-        )
-    except (OSError, ValueError) as exc:
-        return f"could not start it: {exc}"
-    try:
-        out, _ = await asyncio.wait_for(
-            proc.communicate(), timeout=_LOGIN_RUN_TIMEOUT_SECONDS
-        )
-    except TimeoutError:
-        for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(proc.pid, sig)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(proc.wait(), timeout=grace)
-                break
-        return f"it did not finish in {_LOGIN_RUN_TIMEOUT_SECONDS:.0f} s"
-    if proc.returncode == 0:
-        return None
-    lines = out.decode("utf-8", "replace").strip().splitlines()
+    # Output to a file, not a pipe: waiting for the exit, not for EOF, so a child
+    # it leaves running (a browser) neither stalls this nor gets killed; and
+    # only the tail is read back.
+    with tempfile.TemporaryFile() as out:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *shlex.split(command),
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                # Its own group, so a timeout or a cancelled call stops what it
+                # started too (an import, a browser), after a TERM it can clean
+                # up on.
+                start_new_session=True,
+            )
+        except (OSError, ValueError) as exc:
+            return f"could not start it: {exc}"
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=_LOGIN_RUN_TIMEOUT_SECONDS)
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, sig)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(proc.wait(), timeout=grace)
+                    break
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            return f"it did not finish in {_LOGIN_RUN_TIMEOUT_SECONDS:.0f} s"
+        if proc.returncode == 0:
+            return None
+        out.seek(max(0, out.seek(0, os.SEEK_END) - 4096))
+        lines = out.read().decode("utf-8", "replace").strip().splitlines()
     return f"exit {proc.returncode}: " + " / ".join(lines[-3:])
 
 
