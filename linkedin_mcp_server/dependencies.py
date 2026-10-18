@@ -14,6 +14,7 @@ from linkedin_mcp_server.bootstrap import (
     invalidate_auth_and_trigger_relogin,
     invalidate_browser_setup,
 )
+from linkedin_mcp_server.config import get_config
 from linkedin_mcp_server.core.exceptions import AuthenticationError, NetworkError
 from linkedin_mcp_server.drivers.browser import (
     close_browser,
@@ -139,7 +140,7 @@ async def handle_auth_error(
         # has been opened", opened none, and left a state only a restart clears.
         raise BrowserShutdownUnconfirmedError() from error
 
-    if process_role() is ServerRole.OWNER:
+    if process_role() is ServerRole.OWNER and not get_config().browser.login_command:
         # The browser is down and the lease is free, so the client can take over.
         # Recorded before raising so the next forwarded call is answered from the
         # latch rather than by opening Chromium again.

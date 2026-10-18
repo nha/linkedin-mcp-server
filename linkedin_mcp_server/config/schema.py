@@ -183,6 +183,12 @@ class BrowserConfig:
     # user's keychain and degrades to manual login, and no cookie crosses the
     # network.
     auto_import_from_browser: bool | None = None
+    # The command a person runs to sign in, for a server started where nobody
+    # watches the screen (one per coding-agent session, say). Set, the server
+    # never signs in by itself: no login window, no auto-import (its keychain
+    # prompt is a dialog too), always headless, and a missing or expired session
+    # fails every tool at once with an error naming this command.
+    login_command: str | None = None
     # Read by nothing, and accepted anyway. It used to choose between installing
     # the full browser up front or lazily on the first headed login; there is
     # only one browser now, so both answers describe the same install.
@@ -200,6 +206,12 @@ class BrowserConfig:
 
     def validate(self) -> None:
         """Validate browser configuration values."""
+        if self.login_command:
+            # Last, over HEADLESS, --no-headless and AUTO_IMPORT_FROM_BROWSER: a
+            # window or a keychain dialog is exactly what this setting promises
+            # never to show.
+            self.headless = True
+            self.auto_import_from_browser = False
         if self.slow_mo < 0:
             raise ConfigurationError(
                 f"slow_mo must be non-negative, got {self.slow_mo}"

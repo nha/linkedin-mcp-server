@@ -1,0 +1,142 @@
+"""LOGIN_COMMAND: a server nobody watches never signs in by itself.
+
+Started once per coding-agent session, the server used to open a login window
+on the user's screen whenever the session had expired, from a call nobody was
+there to answer. With ``LOGIN_COMMAND`` set every tool fails at once instead,
+naming the command, and no browser, import or login is started.
+"""
+
+import asyncio
+
+import pytest
+from fastmcp import Client
+
+COMMAND = "make -C /repo linkedin-login"
+
+#: Tools that never touch LinkedIn, so they have nothing to refuse.
+_NO_BROWSER = {"close_session"}
+
+
+def _args_for(tool) -> dict:
+    """Placeholder values for a tool's required arguments."""
+    by_type = {"string": "x", "integer": 1, "number": 1, "boolean": False}
+    props = tool.inputSchema.get("properties", {})
+    args = {}
+    for name in tool.inputSchema.get("required", []):
+        schema = props[name]
+        kind = schema.get("type") or next(
+            (s.get("type") for s in schema.get("anyOf", []) if s.get("type") != "null"),
+            "string",
+        )
+        args[name] = [] if kind == "array" else by_type.get(kind, "x")
+    return args
+
+
+@pytest.fixture
+def no_login(isolate_profile_dir, monkeypatch):
+    """A server with LOGIN_COMMAND, an empty profile, and a display available.
+
+    The display check is stubbed to the macOS answer, where a headed window can
+    exist, so nothing here passes merely because no window could open.
+    """
+    import linkedin_mcp_server.bootstrap as bootstrap
+    import linkedin_mcp_server.core.browser as core_browser
+    import linkedin_mcp_server.dependencies as dependencies
+    import linkedin_mcp_server.setup as setup
+
+    monkeypatch.setenv("LOGIN_COMMAND", COMMAND)
+    monkeypatch.setenv("HEADLESS", "false")
+    monkeypatch.setattr(core_browser, "hidden_target_is_supported", lambda: True)
+
+    started: list[str] = []
+
+    def record(name):
+        async def refuse(*args, **kwargs):
+            started.append(name)
+            raise AssertionError(f"{name} must not run with LOGIN_COMMAND set")
+
+        return refuse
+
+    monkeypatch.setattr(setup, "interactive_login", record("interactive_login"))
+    monkeypatch.setattr(bootstrap, "interactive_login", record("interactive_login"))
+    monkeypatch.setattr(bootstrap, "_run_login_flow", record("login_flow"))
+    monkeypatch.setattr(bootstrap, "_try_auto_import_session", record("auto_import"))
+    monkeypatch.setattr(dependencies, "get_or_create_browser", record("browser_launch"))
+    return started
+
+
+async def test_every_tool_fails_at_once_naming_the_command(no_login):
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.server import create_mcp_server
+
+    async with Client(create_mcp_server()) as client:
+        tools = [t for t in await client.list_tools() if t.name not in _NO_BROWSER]
+        assert len(tools) > 10
+        loop = asyncio.get_running_loop()
+        for tool in tools:
+            began = loop.time()
+            result = await client.call_tool(
+                tool.name, _args_for(tool), raise_on_error=False
+            )
+            text = result.content[0].text
+            assert result.is_error, tool.name
+            assert "session is dead" in text and COMMAND in text, (tool.name, text)
+            assert loop.time() - began < 2, tool.name
+
+    config = get_config()
+    assert config.browser.headless is True  # over HEADLESS=false
+    assert config.browser.auto_import_from_browser is False
+    assert no_login == []
+
+
+async def test_concurrent_calls_get_the_same_answer_not_busy(no_login):
+    from linkedin_mcp_server.server import create_mcp_server
+
+    async with Client(create_mcp_server()) as client:
+        results = await asyncio.gather(
+            *(client.call_tool("get_inbox", {}, raise_on_error=False) for _ in range(5))
+        )
+    texts = {r.content[0].text for r in results}
+    assert len(texts) == 1, texts
+    (text,) = texts
+    assert COMMAND in text and "currently using the browser" not in text
+    assert no_login == []
+
+
+async def test_a_dead_session_is_retired_and_no_login_starts(no_login):
+    """The expired case: files on disk, but LinkedIn rejected the cookies."""
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.core.exceptions import AuthenticationError
+    from linkedin_mcp_server.dependencies import handle_auth_error
+    from linkedin_mcp_server.drivers.browser import get_profile_dir
+    from linkedin_mcp_server.exceptions import LoginRequiredError
+    from linkedin_mcp_server.session_state import (
+        portable_cookie_path,
+        write_source_state,
+    )
+
+    get_config()
+    profile = get_profile_dir()
+    (profile / "Default").mkdir(parents=True, exist_ok=True)
+    (profile / "Default" / "Cookies").write_text("placeholder")
+    portable_cookie_path(profile).write_text("[]")
+    write_source_state(profile)
+    assert bootstrap.login_required_error() is None
+
+    with pytest.raises(LoginRequiredError, match="linkedin-login"):
+        await handle_auth_error(AuthenticationError("redirect loop"), None)
+
+    # Retired, so every later call answers from disk without a browser.
+    assert isinstance(bootstrap.login_required_error(), LoginRequiredError)
+    assert bootstrap.get_bootstrap_state().login_task is None
+    assert no_login == []
+
+
+def test_without_login_command_nothing_changes(monkeypatch):
+    from linkedin_mcp_server.config import get_config
+
+    monkeypatch.setenv("HEADLESS", "false")
+    config = get_config()
+    assert config.browser.login_command is None
+    assert config.browser.headless is False

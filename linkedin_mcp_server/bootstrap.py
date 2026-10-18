@@ -64,6 +64,7 @@ from linkedin_mcp_server.exceptions import (
     BrowserSetupInProgressError,
     DockerHostLoginRequiredError,
     LinkedInMCPError,
+    LoginRequiredError,
     OwnerStandingDownError,
     ProfileRootRefusedError,
 )
@@ -3914,6 +3915,19 @@ def _auth_ready(profile_dir: Path | None = None) -> bool:
     )
 
 
+def login_required_error() -> LoginRequiredError | None:
+    """The error to return at once, before waiting for the browser, or ``None``.
+
+    Only with ``LOGIN_COMMAND`` set and no session on disk: then no call can do
+    anything but fail, so making it queue for the profile first only turns that
+    answer into "the browser is busy".
+    """
+    command = get_config().browser.login_command
+    if command and not _auth_ready():
+        return LoginRequiredError(command)
+    return None
+
+
 def _auto_import_allowed() -> bool:
     """Return whether a silent browser-session import is safe to attempt now.
 
@@ -4103,6 +4117,11 @@ async def _try_auto_import_session(ctx: Context | None = None) -> bool:
 async def _start_login_if_needed(
     ctx: Context | None = None, *, superseded_by: str | None | object = UNGUARDED
 ) -> None:
+    if command := get_config().browser.login_command:
+        # Ahead of every branch below: each ends in an auto-import or a login
+        # window, and this server was told to show neither.
+        raise LoginRequiredError(command)
+
     if process_role() is ServerRole.OWNER:
         # Ahead of the lock, and ahead of every branch below, because all of them
         # end somewhere this process cannot go: an auto-import that rotates the
@@ -4379,7 +4398,18 @@ async def invalidate_auth_and_trigger_relogin(
         AuthStaleOnOwnerError: This process is the shared owner, so it reports
             rather than rotating the profile and opening a login nobody could
             answer.
+        LoginRequiredError: ``LOGIN_COMMAND`` is set. The dead session is
+            retired first, so every later call finds none on disk and fails at
+            once rather than opening a browser on it again.
     """
+    if command := get_config().browser.login_command:
+        async with _lock:
+            try:
+                _force_move_auth_state_aside(stale_generation)
+            except AuthenticationBootstrapFailedError as exc:
+                logger.info("Could not retire the dead session: %s", exc)
+        raise LoginRequiredError(command)
+
     if process_role() is ServerRole.OWNER:
         # Never reaches the rotation below. Retiring the session here would race
         # the frontend's login for the same files, and the login window has

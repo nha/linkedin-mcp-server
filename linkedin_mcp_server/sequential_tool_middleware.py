@@ -92,6 +92,12 @@ class SequentialToolExecutionMiddleware(Middleware):
             release_profile_if_idle_or_requested,
         )
 
+        # Imported here like the driver above: bootstrap pulls in the browser stack.
+        from linkedin_mcp_server.bootstrap import login_required_error
+
+        if error := login_required_error():
+            raise ToolError(str(error))
+
         lease = get_profile_lease()
         acquired = lease.try_acquire()
         if not acquired:
@@ -102,8 +108,13 @@ class SequentialToolExecutionMiddleware(Middleware):
                     "waiting for it to hand over"
                 ),
             )
-            budget = get_config().browser.browser_wait_seconds
-            acquired = await lease.acquire(timeout=budget)
+            deadline = time.monotonic() + get_config().browser.browser_wait_seconds
+            # In slices, so a holder that finds the session dead and retires it
+            # sends this call the same answer at once rather than "busy" later.
+            while not acquired and (left := deadline - time.monotonic()) > 0:
+                acquired = await lease.acquire(timeout=min(left, 1.0))
+                if not acquired and (error := login_required_error()):
+                    raise ToolError(str(error))
 
         if not acquired:
             # Raised as a ToolError here, not via error_handler: an exception
