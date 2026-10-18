@@ -93,10 +93,10 @@ class SequentialToolExecutionMiddleware(Middleware):
         )
 
         # Imported here like the driver above: bootstrap pulls in the browser stack.
-        from linkedin_mcp_server.bootstrap import login_required_error
+        from linkedin_mcp_server.bootstrap import login_required_error, sign_in_or_error
 
         # close_session only releases the browser, so it works without a session.
-        if tool_name != "close_session" and (error := login_required_error()):
+        if tool_name != "close_session" and (error := await sign_in_or_error()):
             raise ToolError(str(error))
 
         lease = get_profile_lease()

@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -3931,8 +3932,96 @@ def login_required_error() -> LoginRequiredError | None:
     if not command:
         return None
     if not _auth_ready() or current_login_generation() == _dead_generation:
-        return LoginRequiredError(command)
+        return LoginRequiredError(command, _login_run_detail)
     return None
+
+
+#: A run of LOGIN_COMMAND, at most this often: a failing one (signed out of the
+#: browser too) must not run again on every call.
+_LOGIN_RUN_EVERY_SECONDS = 300.0
+_LOGIN_RUN_TIMEOUT_SECONDS = 300.0
+_login_run_at: float | None = None
+_login_run_detail: str | None = None
+_login_run_lock = asyncio.Lock()
+
+
+async def sign_in_or_error() -> LoginRequiredError | None:
+    """Like :func:`login_required_error`, but runs ``LOGIN_COMMAND`` first.
+
+    The command is something that signs in with nobody at the screen (a bridge
+    that imports the session from the user's own browser, say). It runs here,
+    before the call takes the profile, because the import needs the profile for
+    itself. A dead session found during a call is retired by
+    :func:`invalidate_auth_and_trigger_relogin`, so the next call lands here.
+    """
+    global _login_run_at, _login_run_detail
+    command = get_config().browser.login_command
+    if not command:
+        return None
+    if login_required_error() is None:
+        # Signed in, by the command or by hand: an old failure is no longer news,
+        # and the next dead session gets a run at once.
+        _login_run_detail = None
+        return None
+    async with _login_run_lock:
+        if login_required_error() is None:
+            return None
+        now = time.monotonic()
+        # Throttled only after a failure: a session that dies soon after a good
+        # sign-in is renewed at once.
+        if (
+            _login_run_at is None
+            or _login_run_detail is None
+            or now - _login_run_at >= _LOGIN_RUN_EVERY_SECONDS
+        ):
+            _login_run_at = now
+            _login_run_detail = await _run_login_command(command)
+            if _login_run_detail is None and login_required_error() is not None:
+                _login_run_detail = "it exited 0 but left no usable session"
+    return login_required_error()
+
+
+async def _run_login_command(command: str) -> str | None:
+    """Run *command* without a shell; ``None`` on success, else its last lines."""
+    import shlex
+
+    import tempfile
+
+    logger.info("No LinkedIn session; running LOGIN_COMMAND to sign in")
+    # Output to a file, not a pipe: waiting for the exit, not for EOF, so a child
+    # it leaves running (a browser) neither stalls this nor gets killed; and
+    # only the tail is read back.
+    with tempfile.TemporaryFile() as out:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *shlex.split(command),
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                # Its own group, so a timeout or a cancelled call stops what it
+                # started too (an import, a browser), after a TERM it can clean
+                # up on.
+                start_new_session=True,
+            )
+        except (OSError, ValueError) as exc:
+            return f"could not start it: {exc}"
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=_LOGIN_RUN_TIMEOUT_SECONDS)
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, sig)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(proc.wait(), timeout=grace)
+                    break
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            return f"it did not finish in {_LOGIN_RUN_TIMEOUT_SECONDS:.0f} s"
+        if proc.returncode == 0:
+            return None
+        out.seek(max(0, out.seek(0, os.SEEK_END) - 4096))
+        lines = out.read().decode("utf-8", "replace").strip().splitlines()
+    return f"exit {proc.returncode}: " + " / ".join(lines[-3:])
 
 
 def _auto_import_allowed() -> bool:
