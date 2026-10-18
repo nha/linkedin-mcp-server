@@ -404,7 +404,9 @@ class ConnectionActions:
                 }"""
             )
         except Exception:
-            logger.debug("Could not check the invite dialog for a note field", exc_info=True)
+            logger.debug(
+                "Could not check the invite dialog for a note field", exc_info=True
+            )
             has_usable_note_field = False
         if has_usable_note_field:
             return None

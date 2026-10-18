@@ -52,7 +52,9 @@ def _darwin_groups(markers: set[str]) -> set[int] | None:
 
         groups: set[int] = set()
         for marker in markers:
-            for pid in darwin_procs.pids_with_argv(f"--linkedin-mcp-marker={marker}".encode("ascii")):
+            for pid in darwin_procs.pids_with_argv(
+                f"--linkedin-mcp-marker={marker}".encode("ascii")
+            ):
                 info = darwin_procs.bsd_info(pid)
                 if info is not None:
                     groups.add(int(info.pbi_pgid))

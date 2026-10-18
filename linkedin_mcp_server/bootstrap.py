@@ -387,12 +387,16 @@ _auth_quiescent = False
 #: The generation that was broken. ``None`` is a value (a rotated profile reads as
 #: exactly that), so it cannot double as "not set"; ``_auth_quiescent`` does that.
 _auth_quiescent_generation: str | None = None
+#: With LOGIN_COMMAND, the generation LinkedIn rejected when it could not be
+#: retired from disk; UNGUARDED while none is. Without it every later call would
+#: find the files present and open a browser on the same dead cookies.
+_dead_generation: str | None | object = UNGUARDED
 
 
 def reset_bootstrap_for_testing() -> None:
     """Reset bootstrap singleton state for test isolation."""
     global _state, _lock, _AUTO_IMPORT_ANNOUNCED
-    global _auth_quiescent, _auth_quiescent_generation
+    global _auth_quiescent, _auth_quiescent_generation, _dead_generation
     for task in (
         _state.setup_task,
         _state.cache_report_task,
@@ -407,6 +411,7 @@ def reset_bootstrap_for_testing() -> None:
     _state.login_supersedes = UNGUARDED
     _auth_quiescent = False
     _auth_quiescent_generation = None
+    _dead_generation = UNGUARDED
     os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
     # Tolerate monkeypatched stand-ins that lack `cache_clear`.
     for cached in (_patchright_install_targets, _patchright_registry_entries):
@@ -3923,7 +3928,9 @@ def login_required_error() -> LoginRequiredError | None:
     answer into "the browser is busy".
     """
     command = get_config().browser.login_command
-    if command and not _auth_ready():
+    if not command:
+        return None
+    if not _auth_ready() or current_login_generation() == _dead_generation:
         return LoginRequiredError(command)
     return None
 
@@ -4119,7 +4126,11 @@ async def _start_login_if_needed(
 ) -> None:
     if command := get_config().browser.login_command:
         # Ahead of every branch below: each ends in an auto-import or a login
-        # window, and this server was told to show neither.
+        # window, and this server was told to show neither. A session that
+        # appeared meanwhile (`make linkedin-login` just ran) is still used.
+        if _auth_ready():
+            _state.auth_state = AuthState.READY
+            return
         raise LoginRequiredError(command)
 
     if process_role() is ServerRole.OWNER:
@@ -4403,11 +4414,13 @@ async def invalidate_auth_and_trigger_relogin(
             once rather than opening a browser on it again.
     """
     if command := get_config().browser.login_command:
+        global _dead_generation
         async with _lock:
             try:
                 _force_move_auth_state_aside(stale_generation)
             except AuthenticationBootstrapFailedError as exc:
                 logger.info("Could not retire the dead session: %s", exc)
+                _dead_generation = current_login_generation()
         raise LoginRequiredError(command)
 
     if process_role() is ServerRole.OWNER:

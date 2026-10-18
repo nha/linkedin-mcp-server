@@ -133,6 +133,70 @@ async def test_a_dead_session_is_retired_and_no_login_starts(no_login):
     assert no_login == []
 
 
+def _write_session(profile) -> None:
+    from linkedin_mcp_server.session_state import (
+        portable_cookie_path,
+        write_source_state,
+    )
+
+    (profile / "Default").mkdir(parents=True, exist_ok=True)
+    (profile / "Default" / "Cookies").write_text("placeholder")
+    portable_cookie_path(profile).write_text("[]")
+    write_source_state(profile)
+
+
+async def test_close_session_still_works_without_a_session(no_login):
+    from linkedin_mcp_server.server import create_mcp_server
+
+    async with Client(create_mcp_server()) as client:
+        result = await client.call_tool("close_session", {}, raise_on_error=False)
+    assert not result.is_error, result.content[0].text
+
+
+async def test_a_dead_session_that_cannot_be_retired_is_still_refused(
+    no_login, monkeypatch
+):
+    """Retiring can fail (a held lease, a permission). The files stay, so the
+    rejected generation is remembered rather than tried again in a browser."""
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.drivers.browser import get_profile_dir
+    from linkedin_mcp_server.exceptions import (
+        AuthenticationBootstrapFailedError,
+        LoginRequiredError,
+    )
+
+    get_config()
+    _write_session(get_profile_dir())
+
+    def cannot(*args, **kwargs):
+        raise AuthenticationBootstrapFailedError("profile in use")
+
+    monkeypatch.setattr(bootstrap, "_force_move_auth_state_aside", cannot)
+    with pytest.raises(LoginRequiredError):
+        await bootstrap.invalidate_auth_and_trigger_relogin(
+            stale_generation=bootstrap.current_login_generation()
+        )
+    assert bootstrap._auth_ready()
+    assert isinstance(bootstrap.login_required_error(), LoginRequiredError)
+
+    # A fresh sign-in writes a new generation, which lifts it.
+    _write_session(get_profile_dir())
+    assert bootstrap.login_required_error() is None
+    assert no_login == []
+
+
+async def test_a_session_that_appeared_meanwhile_is_used(no_login):
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.drivers.browser import get_profile_dir
+
+    get_config()
+    _write_session(get_profile_dir())
+    await bootstrap.start_login_if_needed()  # returns, does not raise
+    assert no_login == []
+
+
 def test_without_login_command_nothing_changes(monkeypatch):
     from linkedin_mcp_server.config import get_config
 

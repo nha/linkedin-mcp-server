@@ -95,7 +95,8 @@ class SequentialToolExecutionMiddleware(Middleware):
         # Imported here like the driver above: bootstrap pulls in the browser stack.
         from linkedin_mcp_server.bootstrap import login_required_error
 
-        if error := login_required_error():
+        # close_session only releases the browser, so it works without a session.
+        if tool_name != "close_session" and (error := login_required_error()):
             raise ToolError(str(error))
 
         lease = get_profile_lease()
@@ -108,13 +109,18 @@ class SequentialToolExecutionMiddleware(Middleware):
                     "waiting for it to hand over"
                 ),
             )
-            deadline = time.monotonic() + get_config().browser.browser_wait_seconds
-            # In slices, so a holder that finds the session dead and retires it
-            # sends this call the same answer at once rather than "busy" later.
+            config = get_config().browser
+            deadline = time.monotonic() + config.browser_wait_seconds
+            # With LOGIN_COMMAND, in slices, so a holder that finds the session
+            # dead and retires it sends this call the same answer at once rather
+            # than "busy" later. Otherwise one wait, as before: each slice drops
+            # the handoff announcement for a moment.
+            step = 1.0 if config.login_command else config.browser_wait_seconds
             while not acquired and (left := deadline - time.monotonic()) > 0:
-                acquired = await lease.acquire(timeout=min(left, 1.0))
-                if not acquired and (error := login_required_error()):
-                    raise ToolError(str(error))
+                acquired = await lease.acquire(timeout=min(left, step))
+                if not acquired and tool_name != "close_session":
+                    if error := login_required_error():
+                        raise ToolError(str(error))
 
         if not acquired:
             # Raised as a ToolError here, not via error_handler: an exception

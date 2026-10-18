@@ -150,7 +150,16 @@ _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
 # extension list to what a recruiter thread actually carries.
 _ATTACHMENT_MAX_FILES = 5
 _ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
-_ATTACHMENT_SUFFIXES = {".pdf", ".doc", ".docx", ".png", ".jpg", ".jpeg", ".txt", ".csv"}
+_ATTACHMENT_SUFFIXES = {
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".txt",
+    ".csv",
+}
 _ATTACHMENT_READY_TIMEOUT_SECONDS = 25.0
 # The composer shows one chip per accepted file, carrying the file name. That is the only
 # signal that the upload landed, so it is what we wait for before allowing submission.
@@ -1523,9 +1532,12 @@ class MessageSender:
         candidates = pick(lambda text: "pdf" in text or ".doc" in text)
         if not candidates:
             candidates = pick(
-                lambda text: "file" in text
-                and not any(
-                    word in text for word in ("image", "photo", "video", "gif", "camera")
+                lambda text: (
+                    "file" in text
+                    and not any(
+                        word in text
+                        for word in ("image", "photo", "video", "gif", "camera")
+                    )
                 )
             )
         if not candidates:
