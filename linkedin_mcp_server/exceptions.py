@@ -57,11 +57,12 @@ class LoginRequiredError(LinkedInMCPError):
     Raised instead of opening a login window when ``LOGIN_COMMAND`` is set.
     """
 
-    def __init__(self, login_command: str):
+    def __init__(self, login_command: str, ran: str | None = None):
         super().__init__(
             "The LinkedIn session is dead (expired or missing), and this server "
             f"never opens a login window. Run « {login_command} » to sign in "
             "again, then retry this tool."
+            + (f" It ran by itself and failed: {ran}" if ran else "")
         )
 
 

@@ -3931,8 +3931,68 @@ def login_required_error() -> LoginRequiredError | None:
     if not command:
         return None
     if not _auth_ready() or current_login_generation() == _dead_generation:
-        return LoginRequiredError(command)
+        return LoginRequiredError(command, _login_run_detail)
     return None
+
+
+#: A run of LOGIN_COMMAND, at most this often: a failing one (signed out of the
+#: browser too) must not run again on every call.
+_LOGIN_RUN_EVERY_SECONDS = 300.0
+_LOGIN_RUN_TIMEOUT_SECONDS = 150.0
+_login_run_at: float | None = None
+_login_run_detail: str | None = None
+_login_run_lock = asyncio.Lock()
+
+
+async def sign_in_or_error() -> LoginRequiredError | None:
+    """Like :func:`login_required_error`, but runs ``LOGIN_COMMAND`` first.
+
+    The command is something that signs in with nobody at the screen (a bridge
+    that imports the session from the user's own browser, say). It runs here,
+    before the call takes the profile, because the import needs the profile for
+    itself. A dead session found during a call is retired by
+    :func:`invalidate_auth_and_trigger_relogin`, so the next call lands here.
+    """
+    global _login_run_at, _login_run_detail
+    command = get_config().browser.login_command
+    if not command or login_required_error() is None:
+        return None
+    async with _login_run_lock:
+        if login_required_error() is None:
+            return None
+        now = time.monotonic()
+        if _login_run_at is None or now - _login_run_at >= _LOGIN_RUN_EVERY_SECONDS:
+            _login_run_at = now
+            _login_run_detail = await _run_login_command(command)
+    return login_required_error()
+
+
+async def _run_login_command(command: str) -> str | None:
+    """Run *command* without a shell; ``None`` on success, else its last lines."""
+    import shlex
+
+    logger.info("No LinkedIn session; running LOGIN_COMMAND to sign in")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *shlex.split(command),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except (OSError, ValueError) as exc:
+        return f"could not start it: {exc}"
+    try:
+        out, _ = await asyncio.wait_for(
+            proc.communicate(), timeout=_LOGIN_RUN_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return f"it did not finish in {_LOGIN_RUN_TIMEOUT_SECONDS:.0f} s"
+    if proc.returncode == 0:
+        return None
+    lines = out.decode("utf-8", "replace").strip().splitlines()
+    return f"exit {proc.returncode}: " + " / ".join(lines[-3:])
 
 
 def _auto_import_allowed() -> bool:

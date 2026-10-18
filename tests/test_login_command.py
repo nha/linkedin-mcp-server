@@ -7,6 +7,7 @@ naming the command, and no browser, import or login is started.
 """
 
 import asyncio
+import time
 
 import pytest
 from fastmcp import Client
@@ -62,6 +63,10 @@ def no_login(isolate_profile_dir, monkeypatch):
     monkeypatch.setattr(bootstrap, "_run_login_flow", record("login_flow"))
     monkeypatch.setattr(bootstrap, "_try_auto_import_session", record("auto_import"))
     monkeypatch.setattr(dependencies, "get_or_create_browser", record("browser_launch"))
+    # As if the command had just run: these tests never execute it. The ones
+    # about running it set this back to None.
+    monkeypatch.setattr(bootstrap, "_login_run_at", time.monotonic())
+    monkeypatch.setattr(bootstrap, "_login_run_detail", None)
     return started
 
 
@@ -267,3 +272,57 @@ async def test_a_dead_session_leaves_the_profile_free_for_other_servers(
 
 def _args_for_send() -> dict:
     return {"linkedin_username": "someone", "message": "hello", "confirm_send": True}
+
+
+def _command(tmp_path, code: str) -> str:
+    """A LOGIN_COMMAND that appends a line to runs.txt, then runs *code*."""
+    import shlex
+    import sys
+
+    runs = tmp_path / "runs.txt"
+    body = f"open({str(runs)!r}, 'a').write('x\\n'); {code}"
+    return f"{shlex.quote(sys.executable)} -c {shlex.quote(body)}"
+
+
+async def test_the_command_runs_and_a_signed_in_call_carries_on(
+    no_login, tmp_path, monkeypatch
+):
+    """The bridge case: the command signs in, so the call goes on, with no error."""
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+
+    session = tmp_path / "session"
+    monkeypatch.setenv(
+        "LOGIN_COMMAND", _command(tmp_path, f"open({str(session)!r}, 'w')")
+    )
+    get_config()
+    monkeypatch.setattr(bootstrap, "_login_run_at", None)
+    monkeypatch.setattr(bootstrap, "_auth_ready", lambda *a, **k: session.exists())
+
+    assert await bootstrap.sign_in_or_error() is None
+    assert await bootstrap.sign_in_or_error() is None
+    assert (tmp_path / "runs.txt").read_text() == "x\n"
+    assert no_login == []
+
+
+async def test_a_failing_command_is_named_with_its_output_and_not_rerun(
+    no_login, tmp_path, monkeypatch
+):
+    import linkedin_mcp_server.bootstrap as bootstrap
+    from linkedin_mcp_server.config import get_config
+    from linkedin_mcp_server.exceptions import LoginRequiredError
+
+    command = _command(
+        tmp_path, "print('make -C /repo linkedin-login, by hand'); raise SystemExit(3)"
+    )
+    monkeypatch.setenv("LOGIN_COMMAND", command)
+    get_config()
+    monkeypatch.setattr(bootstrap, "_login_run_at", None)
+
+    first = await bootstrap.sign_in_or_error()
+    again = await bootstrap.sign_in_or_error()
+    assert isinstance(first, LoginRequiredError)
+    assert "exit 3: make -C /repo linkedin-login, by hand" in str(first)
+    assert str(again) == str(first)
+    assert (tmp_path / "runs.txt").read_text() == "x\n"
+    assert no_login == []
