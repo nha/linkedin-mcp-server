@@ -210,6 +210,11 @@ class BrowserConfig:
             # Last, over HEADLESS, --no-headless and AUTO_IMPORT_FROM_BROWSER: a
             # window or a keychain dialog is exactly what this setting promises
             # never to show.
+            if not self.headless or self.auto_import_from_browser:
+                logger.warning(
+                    "LOGIN_COMMAND is set: running headless with no auto-import, "
+                    "over --no-headless, HEADLESS or AUTO_IMPORT_FROM_BROWSER"
+                )
             self.headless = True
             self.auto_import_from_browser = False
         if self.slow_mo < 0:

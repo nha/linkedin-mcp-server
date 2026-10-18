@@ -4192,14 +4192,15 @@ async def _try_auto_import_session(ctx: Context | None = None) -> bool:
 async def _start_login_if_needed(
     ctx: Context | None = None, *, superseded_by: str | None | object = UNGUARDED
 ) -> None:
-    if command := get_config().browser.login_command:
+    if get_config().browser.login_command:
         # Ahead of every branch below: each ends in an auto-import or a login
         # window, and this server was told to show neither. A session that
-        # appeared meanwhile (`make linkedin-login` just ran) is still used.
-        if _auth_ready():
-            _state.auth_state = AuthState.READY
-            return
-        raise LoginRequiredError(command)
+        # appeared meanwhile (`make linkedin-login` just ran) is still used; a
+        # rejected one still on disk is not (same test as the middleware gate).
+        if error := login_required_error():
+            raise error
+        _state.auth_state = AuthState.READY
+        return
 
     if process_role() is ServerRole.OWNER:
         # Ahead of the lock, and ahead of every branch below, because all of them
@@ -4480,6 +4481,8 @@ async def invalidate_auth_and_trigger_relogin(
         LoginRequiredError: ``LOGIN_COMMAND`` is set. The dead session is
             retired first, so every later call finds none on disk and fails at
             once rather than opening a browser on it again.
+        PeerSessionInPlaceError: ``LOGIN_COMMAND`` is set and a new session
+            replaced the dead one meanwhile; the error handler says to retry.
     """
     if command := get_config().browser.login_command:
         global _dead_generation
@@ -4488,7 +4491,13 @@ async def invalidate_auth_and_trigger_relogin(
                 _force_move_auth_state_aside(stale_generation)
             except AuthenticationBootstrapFailedError as exc:
                 logger.info("Could not retire the dead session: %s", exc)
-                _dead_generation = current_login_generation()
+                # The generation the caller saw fail, not what is on disk now: a
+                # login that landed meanwhile must not be marked dead.
+                _dead_generation = (
+                    current_login_generation()
+                    if stale_generation is UNGUARDED
+                    else stale_generation
+                )
         raise LoginRequiredError(command)
 
     if process_role() is ServerRole.OWNER:
