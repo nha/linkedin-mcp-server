@@ -78,6 +78,7 @@ def _patch_inline_wait(monkeypatch, seconds: float, *, auto_import=False) -> Non
             auto_import_from_browser=auto_import,
             chrome_path=None,
             headless=True,
+            login_command=None,
         ),
         server=SimpleNamespace(transport="stdio", host="127.0.0.1"),
         is_interactive=False,

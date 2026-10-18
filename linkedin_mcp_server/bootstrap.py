@@ -64,6 +64,7 @@ from linkedin_mcp_server.exceptions import (
     BrowserSetupInProgressError,
     DockerHostLoginRequiredError,
     LinkedInMCPError,
+    LoginRequiredError,
     OwnerStandingDownError,
     ProfileRootRefusedError,
 )
@@ -386,12 +387,16 @@ _auth_quiescent = False
 #: The generation that was broken. ``None`` is a value (a rotated profile reads as
 #: exactly that), so it cannot double as "not set"; ``_auth_quiescent`` does that.
 _auth_quiescent_generation: str | None = None
+#: With LOGIN_COMMAND, the generation LinkedIn rejected when it could not be
+#: retired from disk; UNGUARDED while none is. Without it every later call would
+#: find the files present and open a browser on the same dead cookies.
+_dead_generation: str | None | object = UNGUARDED
 
 
 def reset_bootstrap_for_testing() -> None:
     """Reset bootstrap singleton state for test isolation."""
     global _state, _lock, _AUTO_IMPORT_ANNOUNCED
-    global _auth_quiescent, _auth_quiescent_generation
+    global _auth_quiescent, _auth_quiescent_generation, _dead_generation
     for task in (
         _state.setup_task,
         _state.cache_report_task,
@@ -406,6 +411,7 @@ def reset_bootstrap_for_testing() -> None:
     _state.login_supersedes = UNGUARDED
     _auth_quiescent = False
     _auth_quiescent_generation = None
+    _dead_generation = UNGUARDED
     os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
     # Tolerate monkeypatched stand-ins that lack `cache_clear`.
     for cached in (_patchright_install_targets, _patchright_registry_entries):
@@ -3914,6 +3920,21 @@ def _auth_ready(profile_dir: Path | None = None) -> bool:
     )
 
 
+def login_required_error() -> LoginRequiredError | None:
+    """The error to return at once, before waiting for the browser, or ``None``.
+
+    Only with ``LOGIN_COMMAND`` set and no session on disk: then no call can do
+    anything but fail, so making it queue for the profile first only turns that
+    answer into "the browser is busy".
+    """
+    command = get_config().browser.login_command
+    if not command:
+        return None
+    if not _auth_ready() or current_login_generation() == _dead_generation:
+        return LoginRequiredError(command)
+    return None
+
+
 def _auto_import_allowed() -> bool:
     """Return whether a silent browser-session import is safe to attempt now.
 
@@ -4103,6 +4124,16 @@ async def _try_auto_import_session(ctx: Context | None = None) -> bool:
 async def _start_login_if_needed(
     ctx: Context | None = None, *, superseded_by: str | None | object = UNGUARDED
 ) -> None:
+    if get_config().browser.login_command:
+        # Ahead of every branch below: each ends in an auto-import or a login
+        # window, and this server was told to show neither. A session that
+        # appeared meanwhile (`make linkedin-login` just ran) is still used; a
+        # rejected one still on disk is not (same test as the middleware gate).
+        if error := login_required_error():
+            raise error
+        _state.auth_state = AuthState.READY
+        return
+
     if process_role() is ServerRole.OWNER:
         # Ahead of the lock, and ahead of every branch below, because all of them
         # end somewhere this process cannot go: an auto-import that rotates the
@@ -4379,7 +4410,28 @@ async def invalidate_auth_and_trigger_relogin(
         AuthStaleOnOwnerError: This process is the shared owner, so it reports
             rather than rotating the profile and opening a login nobody could
             answer.
+        LoginRequiredError: ``LOGIN_COMMAND`` is set. The dead session is
+            retired first, so every later call finds none on disk and fails at
+            once rather than opening a browser on it again.
+        PeerSessionInPlaceError: ``LOGIN_COMMAND`` is set and a new session
+            replaced the dead one meanwhile; the error handler says to retry.
     """
+    if command := get_config().browser.login_command:
+        global _dead_generation
+        async with _lock:
+            try:
+                _force_move_auth_state_aside(stale_generation)
+            except AuthenticationBootstrapFailedError as exc:
+                logger.info("Could not retire the dead session: %s", exc)
+                # The generation the caller saw fail, not what is on disk now: a
+                # login that landed meanwhile must not be marked dead.
+                _dead_generation = (
+                    current_login_generation()
+                    if stale_generation is UNGUARDED
+                    else stale_generation
+                )
+        raise LoginRequiredError(command)
+
     if process_role() is ServerRole.OWNER:
         # Never reaches the rotation below. Retiring the session here would race
         # the frontend's login for the same files, and the login window has

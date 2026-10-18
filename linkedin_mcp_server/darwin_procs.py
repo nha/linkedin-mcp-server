@@ -66,9 +66,20 @@ def available() -> bool:
 
 def _libproc() -> ctypes.CDLL:
     lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
-    lib.proc_listpids.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_int]
+    lib.proc_listpids.argtypes = [
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    ]
     lib.proc_listpids.restype = ctypes.c_int
-    lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+    lib.proc_pidinfo.argtypes = [
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint64,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    ]
     lib.proc_pidinfo.restype = ctypes.c_int
     return lib
 
@@ -86,7 +97,9 @@ def list_pids() -> list[int]:
 def bsd_info(pid: int) -> _ProcBsdInfo | None:
     lib = _libproc()
     info = _ProcBsdInfo()
-    read = lib.proc_pidinfo(pid, _PROC_PIDTBSDINFO, 0, ctypes.byref(info), ctypes.sizeof(info))
+    read = lib.proc_pidinfo(
+        pid, _PROC_PIDTBSDINFO, 0, ctypes.byref(info), ctypes.sizeof(info)
+    )
     return info if read == ctypes.sizeof(info) else None
 
 

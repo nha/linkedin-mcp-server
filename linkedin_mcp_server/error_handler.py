@@ -40,6 +40,7 @@ from linkedin_mcp_server.exceptions import (
     OwnerStandingDownError,
     DockerHostLoginRequiredError,
     LinuxBrowserDependencyError,
+    LoginRequiredError,
     LinkedInMCPError,
     OwnerCannotAuthenticateError,
     SessionExpiredError,
@@ -148,6 +149,10 @@ def raise_tool_error(exception: Exception, context: str = "") -> NoReturn:
 
     elif isinstance(exception, OwnerStandingDownError):
         logger.info("Browser owner standing down%s: %s", ctx, exception)
+        raise ToolError(str(exception)) from exception
+
+    elif isinstance(exception, LoginRequiredError):
+        logger.info("Login required%s: %s", ctx, exception)
         raise ToolError(str(exception)) from exception
 
     elif isinstance(exception, AuthenticationStartedError):

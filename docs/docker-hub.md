@@ -132,6 +132,7 @@ Use `$env:USERPROFILE\.linkedin-mcp` when constructing the host path outside JSO
 | `BROWSER_MIN_HOLD` | `20` | Shortest time a process keeps the shared browser before handing it over, in seconds. Clamped to 3 seconds below `BROWSER_WAIT`, so raise that one along with it. Higher means fewer browser restarts but longer waits for other clients. |
 | `BROWSER_IDLE_TIMEOUT` | `600` | Close an idle browser and release the profile after this many seconds without a tool call (`0` = keep it open). |
 | `AUTO_IMPORT_FROM_BROWSER` | on | Import a session from a signed-in local browser on the first tool call that needs one. Skipped in containers, which have no host browser or keychain. |
+| `LOGIN_COMMAND` | unset | The command that signs in. Set, the server never signs in by itself: always headless, no auto-import, and a missing or expired session fails every tool at once naming this command. |
 | `TRANSPORT` | `stdio` | Transport mode: stdio, streamable-http |
 | `HOST` | `127.0.0.1` | HTTP server host (for streamable-http transport) |
 | `PORT` | `8000` | HTTP server port (for streamable-http transport) |

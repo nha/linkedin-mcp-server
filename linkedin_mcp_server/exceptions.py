@@ -51,6 +51,20 @@ class AuthenticationInProgressError(LinkedInMCPError):
     """Interactive LinkedIn login is already running."""
 
 
+class LoginRequiredError(LinkedInMCPError):
+    """No usable session, and this server is configured never to sign in itself.
+
+    Raised instead of opening a login window when ``LOGIN_COMMAND`` is set.
+    """
+
+    def __init__(self, login_command: str):
+        super().__init__(
+            "The LinkedIn session is dead (expired or missing), and this server "
+            f"never opens a login window. Run « {login_command} » to sign in "
+            "again, then retry this tool."
+        )
+
+
 class AuthenticationBootstrapFailedError(LinkedInMCPError):
     """Interactive LinkedIn login could not be completed."""
 

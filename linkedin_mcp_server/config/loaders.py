@@ -144,6 +144,7 @@ class EnvironmentKeys:
     BROWSER_IDLE_TIMEOUT = "BROWSER_IDLE_TIMEOUT"
     IMPORT_FROM_BROWSER = "IMPORT_FROM_BROWSER"
     AUTO_IMPORT_FROM_BROWSER = "AUTO_IMPORT_FROM_BROWSER"
+    LOGIN_COMMAND = "LOGIN_COMMAND"
     EAGER_FULL_CHROMIUM = "EAGER_FULL_CHROMIUM"
     DAEMON_ENABLED = "DAEMON_ENABLED"
     INSTALLER_TEMP_DIR = "INSTALLER_TEMP_DIR"
@@ -422,6 +423,10 @@ def load_from_env(config: AppConfig) -> AppConfig:
             config.browser.auto_import_from_browser = False
         elif auto_import_value in TRUTHY_VALUES:
             config.browser.auto_import_from_browser = True
+
+    # Never sign in by itself; a dead session names this command instead.
+    if login_command_env := _env(EnvironmentKeys.LOGIN_COMMAND):
+        config.browser.login_command = login_command_env.strip() or None
 
     # Install full chromium up front instead of lazily on the first headed login.
     if eager_full_env := os.environ.get(EnvironmentKeys.EAGER_FULL_CHROMIUM):
