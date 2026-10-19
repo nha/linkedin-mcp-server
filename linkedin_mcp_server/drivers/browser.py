@@ -18,6 +18,7 @@ from linkedin_mcp_server.common_utils import harden_linkedin_tree, secure_mkdir
 from linkedin_mcp_server.core import (
     AuthenticationError,
     BrowserManager,
+    RateLimitError,
     await_deferring_cancels,
     detect_auth_barrier_quick,
     detect_rate_limit,
@@ -256,6 +257,16 @@ async def _feed_auth_succeeds(
         # and both destinations here outlive the call -- the trace is written to
         # disk and the log is what users paste into issue reports.
         await _log_feed_failure_context(browser, detail)
+        if barrier is None and "ERR_HTTP_RESPONSE_CODE_FAILURE" in detail:
+            # LinkedIn answered, with an error status and no page: a busy
+            # session, not a dead one (an HTTP 429 on 2026-10-18, read as a
+            # dead session, retired a profile that worked). A signed-out
+            # session redirects to /login instead, which the barrier sees.
+            raise RateLimitError(
+                "LinkedIn answered /feed/ with an HTTP error (rate limit); "
+                "the session is kept.",
+                suggested_wait_time=300,
+            ) from exc
         if barrier is None:
             # Nothing loaded and no barrier, so nothing proves the session is
             # dead -- and with a proxy in front, the most likely cause is the

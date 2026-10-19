@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from linkedin_mcp_server.config.schema import AppConfig
-from linkedin_mcp_server.core.exceptions import ProxyConnectionError
+from linkedin_mcp_server.core.exceptions import ProxyConnectionError, RateLimitError
 from linkedin_mcp_server.exceptions import BrowserShutdownUnconfirmedError
 from linkedin_mcp_server.drivers.browser import (
     _feed_auth_succeeds,
@@ -209,6 +209,34 @@ async def test_feed_auth_retries_feed_after_remember_me_error_recovery():
 
     assert browser.page.goto.await_count == 2
     remember_me.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_feed_auth_http_error_is_a_rate_limit_not_a_dead_session():
+    # 2026-10-18: /feed/ answered 429 with no body; returning False retired a
+    # working profile. An error status is a busy session: raised, never False.
+    browser = _make_mock_browser()
+    browser.page.goto = AsyncMock(
+        side_effect=Exception(
+            "Page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at "
+            "https://www.linkedin.com/feed/"
+        )
+    )
+
+    with (
+        patch(
+            "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        pytest.raises(RateLimitError),
+    ):
+        await _feed_auth_succeeds(browser)
 
 
 @pytest.mark.asyncio
