@@ -199,10 +199,11 @@ jobs:
       # contracts launch per case, and the DOM timers use wall-clock deadlines
       # that concurrent browser startups made flaky. Tests without the group
       # mark are distributed exactly as before.
+      # -m "" lifts pytest.ini's default, which leaves the browser tests out of a plain local run.
       - name: Run tests
         env:
           DISPLAY: ":99"
-        run: uv run pytest --cov --cov-report=term-missing -n auto --dist loadgroup -v -s
+        run: uv run pytest -m "" --cov --cov-report=term-missing -n auto --dist loadgroup -v -s
 
       - run: uv cache prune --ci
 
@@ -324,13 +325,13 @@ jobs:
       # depends on Chromium joining the Job its Node driver was assigned to
       # -- a fact about Windows that only Windows can confirm.
       - name: Run the browser containment test
-        run: uv run pytest tests/test_browser_containment.py
+        run: uv run pytest -m "" tests/test_browser_containment.py
 
       - name: Run the identity gate
         env:
           # Only where one was started. macOS ignores it, but naming a display
           # that does not exist is the kind of thing someone later debugs.
           DISPLAY: ${{ runner.os == 'Linux' && ':99' || '' }}
-        run: uv run pytest tests/test_browser_identity.py
+        run: uv run pytest -m "" tests/test_browser_identity.py
 
       - run: uv cache prune --ci

@@ -60,6 +60,9 @@ class SequentialToolExecutionMiddleware(Middleware):
     ) -> ToolResult:
         tool_name = context.message.name
         arguments = context.message.arguments
+        # A write forgets before it queues too: a read cached now would show the
+        # thread without the send still waiting for the lock (/code-review of #8).
+        await gate.forget(tool_name)
         # A read the gate still holds loads no page (task linkedin-rate-guard:
         # a repeated read was a repeated page load).
         if (hit := await gate.cached(tool_name, arguments)) is not None:
@@ -72,7 +75,7 @@ class SequentialToolExecutionMiddleware(Middleware):
         finally:
             gate.current_tool.reset(token)
             # Whether the write landed or failed halfway, the cached copy is suspect.
-            await gate.forget_after(tool_name)
+            await gate.forget(tool_name)
         if result.structured_content is not None and not result.is_error:
             await gate.keep(tool_name, arguments, result.structured_content)
         return result

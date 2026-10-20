@@ -15,7 +15,10 @@ import anyio
 import anyio.lowlevel
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.core.exceptions import (
+    LinkedInScraperException,
+    RateLimitError,
+)
 import linkedin_mcp_server.scraping.contracts as contracts
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_person_identifier,
@@ -2001,6 +2004,10 @@ class MessageSender:
                     "https://www.linkedin.com/in/me/"
                 )
                 name = await self._page.evaluate(_OWN_NAME_JS)
+            except RateLimitError:
+                # A gate refusal or a limit stops the reply, never an unknown
+                # name that weakens the participant check (/code-review of #8).
+                raise
             except Exception:
                 logger.debug("Could not resolve the viewer's own name", exc_info=True)
                 name = ""

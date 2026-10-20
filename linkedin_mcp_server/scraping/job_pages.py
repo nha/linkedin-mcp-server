@@ -17,6 +17,7 @@ import time
 
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.core.utils import (
     _JOB_CARD_SELECTOR,
@@ -235,6 +236,7 @@ class JobPageReader:
             )
             if result.text == RATE_LIMITED_SECTION_TEXT:
                 logger.warning("Search page %s still rate-limited after retry", url)
+                await gate.report_limited(f"{url} came back empty twice")
             return self._captured(result, charge.seconds)
 
         except LinkedInScraperException:
@@ -432,6 +434,7 @@ class JobPageReader:
                     logger.warning(
                         "Saved jobs page %s still rate-limited after retry", url
                     )
+                    await gate.report_limited(f"{url} came back empty twice")
                 return self._captured(result)
 
             except LinkedInScraperException:

@@ -23,15 +23,17 @@ import json
 import logging
 import os
 import urllib.request
-from typing import Any
+from typing import Any, NoReturn
 
 from linkedin_mcp_server.core.exceptions import RateLimitError
 from linkedin_mcp_server.core.proxy_errors import raise_if_proxy_error
 
 logger = logging.getLogger(__name__)
 
-#: The longest the gap may hold one load before it is a refusal instead.
-MAX_WAIT_SECONDS = 120
+#: The longest the gap may hold one load before it is a refusal instead: the
+#: write gap, so a send's waits stay well inside the tool's 180 s deadline and
+#: never push its submit past it (/code-review of #8).
+MAX_WAIT_SECONDS = 60
 
 #: The tool call this load belongs to, set by the tool middleware.
 current_tool: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -136,15 +138,23 @@ async def load(
         response = await page.goto(url, **goto_kwargs)
     except Exception as exc:
         raise_if_proxy_error(exc)
+        # Chromium raises this for an error status with an empty body, which is
+        # how the 429s of 2026-10-18 came: taken as a limit, wherever it loads.
+        if "ERR_HTTP_RESPONSE_CODE_FAILURE" in str(exc):
+            await _limited(f"{source} got an empty error answer on {url}")
         raise
     status = getattr(response, "status", None)
     if status in _LIMIT_STATUSES:
-        why = f"{source} got HTTP {status} on {url}"
-        await report_limited(why)
-        limited = RateLimitError(f"LinkedIn answered {why}", suggested_wait_time=86400)
-        setattr(limited, "reported", True)  # report_limited_soon skips it
-        raise limited
+        await _limited(f"{source} got HTTP {status} on {url}")
     return response
+
+
+async def _limited(why: str) -> NoReturn:
+    """Report the limit, then raise it marked as reported."""
+    await report_limited(why)
+    limited = RateLimitError(f"LinkedIn answered {why}", suggested_wait_time=86400)
+    setattr(limited, "reported", True)  # report_limited_soon skips it
+    raise limited
 
 
 async def report_limited(why: str) -> None:
@@ -222,9 +232,9 @@ FORGETS = {
 }
 
 
-async def forget_after(tool: str) -> None:
-    """Drop the cached reads a write made wrong, so a check right after a send
-    never reads the thread from before it (and sends again)."""
+async def forget(tool: str) -> None:
+    """Drop the cached reads a write makes wrong, so a check during or right
+    after a send never reads the thread from before it (and sends again)."""
     if kind := FORGETS.get(tool):
         await ask("forget", {"kind": kind})
 

@@ -10,6 +10,7 @@ import logging
 
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.error_diagnostics import build_issue_diagnostics
 from linkedin_mcp_server.scraping.content import PageContentReader
@@ -123,7 +124,13 @@ class SectionCapture:
                     "Retrying %s after %.0fs backoff", url, RATE_LIMIT_RETRY_DELAY
                 )
             await self._session.delay(RATE_LIMIT_RETRY_DELAY)
-            return await self._capture_once(url, section_name, plan)
+            result = await self._capture_once(url, section_name, plan)
+            if result.text == RATE_LIMITED_SECTION_TEXT:
+                # Empty twice reads as a limit: nothing loads for a day, since
+                # a success with a section error reaches no limit report
+                # (/code-review of #8).
+                await gate.report_limited(f"{url} came back empty twice")
+            return result
 
         except LinkedInScraperException:
             raise

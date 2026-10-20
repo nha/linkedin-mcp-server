@@ -177,7 +177,22 @@ async def test_a_send_forgets_the_cached_inbox(monkeypatch):
         return {"sent": True}
 
     await mcp.call_tool("reply_in_thread", {})
-    assert asked == [("forget", {"kind": "inbox"})]
+    # before it queues (a read meanwhile would cache the thread without it) and after
+    assert asked == [("forget", {"kind": "inbox"})] * 2
+
+
+async def test_an_empty_error_answer_is_reported_as_a_limit(monkeypatch):
+    """Chromium raises on an error status with no body: the 429s of 2026-10-18."""
+    asked = _gate(monkeypatch, {"allow": True}, {"ok": True})
+
+    class _Empty(_Page):
+        async def goto(self, url: str, **_: Any) -> Any:
+            raise Exception(f"net::ERR_HTTP_RESPONSE_CODE_FAILURE at {url}")
+
+    with pytest.raises(RateLimitError) as raised:
+        await gate.load(_Empty(), "https://www.linkedin.com/feed/", source="import")
+    assert getattr(raised.value, "reported", False)
+    assert [op for op, _ in asked] == ["load", "limited"]
 
 
 def test_a_gate_refusal_is_not_reported_as_a_limit(monkeypatch):
@@ -252,4 +267,4 @@ async def test_a_write_is_never_cached(monkeypatch):
         return {"sent": True}
 
     await mcp.call_tool("send_message", {})
-    assert [op for op, _ in asked] == ["forget"]
+    assert [op for op, _ in asked] == ["forget", "forget"]
