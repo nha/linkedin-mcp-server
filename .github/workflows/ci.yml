@@ -8,8 +8,8 @@ on:
   # is based on the branch below it, so filtering by base branch skipped CI
   # entirely for the stacks this repository's workflow produces.
   pull_request:
-  # By hand too: this fork's push and pull_request events start no run, a
-  # dispatch does (linkedin-fork-pr4, 2026-10-20).
+  # By hand too, for a branch no event ran. The dependency review runs on
+  # pull requests only.
   workflow_dispatch:
 
 jobs:

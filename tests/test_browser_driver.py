@@ -1428,3 +1428,33 @@ async def test_feed_auth_http_error_on_the_remember_me_retry_is_a_rate_limit():
         pytest.raises(RateLimitError),
     ):
         await _feed_auth_succeeds(browser)
+
+
+@pytest.mark.asyncio
+async def test_feed_auth_http_error_on_the_error_recovery_retry_is_a_rate_limit():
+    # /code-review of #4: the other retry, after a failed first navigation.
+    browser = _make_mock_browser()
+    browser.page.goto = AsyncMock(
+        side_effect=[
+            Exception("Page.goto: Timeout 30000ms exceeded."),
+            Exception(
+                "Page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at "
+                "https://www.linkedin.com/feed/"
+            ),
+        ]
+    )
+
+    with (
+        patch(
+            "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        pytest.raises(RateLimitError),
+    ):
+        await _feed_auth_succeeds(browser)

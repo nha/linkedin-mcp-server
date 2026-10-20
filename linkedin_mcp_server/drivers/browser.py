@@ -190,7 +190,11 @@ async def _feed_auth_succeeds(
     *,
     allow_remember_me: bool = True,
 ) -> bool:
-    """Validate that /feed/ loads without an auth barrier."""
+    """Validate that /feed/ loads without an auth barrier.
+
+    False means the session is dead. A 429 raises RateLimitError and a proxy
+    fault a proxy error instead: neither is evidence about the session.
+    """
     # The remember-me retry runs after the try, never inside it: what it raises (a
     # RateLimitError, a proxy error) is its verdict, not the catch-all's, which
     # read a 429 there as a dead session (/code-review of #3).
