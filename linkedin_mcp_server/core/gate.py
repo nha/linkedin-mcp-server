@@ -77,7 +77,9 @@ def _ask(op: str, body: dict[str, Any], timeout: float = 5.0) -> dict[str, Any] 
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             answer = json.load(response)
-    except (OSError, ValueError):
+    except Exception:
+        # An HTTP status, a body cut short (http.client.HTTPException is not an
+        # OSError), bad JSON: all of it is no answer, and no answer refuses.
         return None
     return answer if isinstance(answer, dict) else None
 
@@ -139,7 +141,9 @@ async def load(
     if status in _LIMIT_STATUSES:
         why = f"{source} got HTTP {status} on {url}"
         await report_limited(why)
-        raise RateLimitError(f"LinkedIn answered {why}", suggested_wait_time=86400)
+        limited = RateLimitError(f"LinkedIn answered {why}", suggested_wait_time=86400)
+        setattr(limited, "reported", True)  # report_limited_soon skips it
+        raise limited
     return response
 
 
@@ -149,10 +153,23 @@ async def report_limited(why: str) -> None:
         logger.warning("Gate did not take the limit report (%s)", why)
 
 
-def report_limited_now(why: str) -> None:
-    """:func:`report_limited` from synchronous code (the tool error handler)."""
-    if not (_ask("limited", {"why": why}, timeout=2.0) or {}).get("ok"):
-        logger.warning("Gate did not take the limit report (%s)", why)
+_reports: set[asyncio.Task[None]] = set()
+
+
+def report_limited_soon(exc: BaseException, why: str) -> None:
+    """:func:`report_limited` from synchronous code (the tool error handler),
+    once per limit: :func:`load` has already reported the ones it raised. On
+    the running loop as a task, so the report never blocks it."""
+    if getattr(exc, "reported", False):
+        return
+    try:
+        task = asyncio.get_running_loop().create_task(report_limited(why))
+    except RuntimeError:
+        if not (_ask("limited", {"why": why}, timeout=2.0) or {}).get("ok"):
+            logger.warning("Gate did not take the limit report (%s)", why)
+        return
+    _reports.add(task)
+    task.add_done_callback(_reports.discard)
 
 
 async def hello(version: str) -> None:
@@ -194,6 +211,22 @@ async def cached(tool: str, arguments: dict[str, Any] | None) -> dict[str, Any] 
     except ValueError:
         return None
     return value if isinstance(value, dict) else None
+
+
+#: What a write makes stale: a send changes the inbox, an invitation the invitations.
+FORGETS = {
+    "send_message": "inbox",
+    "reply_in_thread": "inbox",
+    "message_job_poster": "inbox",
+    "connect_with_person": "invitations",
+}
+
+
+async def forget_after(tool: str) -> None:
+    """Drop the cached reads a write made wrong, so a check right after a send
+    never reads the thread from before it (and sends again)."""
+    if kind := FORGETS.get(tool):
+        await ask("forget", {"kind": kind})
 
 
 async def keep(

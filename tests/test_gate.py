@@ -7,6 +7,7 @@ points the client at a port nothing listens on.
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -135,11 +136,48 @@ async def test_a_limit_status_starts_the_cooldown(monkeypatch):
     assert asked[1][0] == "limited" and "HTTP 429" in asked[1][1]["why"]
 
 
-def test_a_limit_answer_from_a_tool_starts_the_cooldown(monkeypatch):
+async def test_a_limit_answer_from_a_tool_starts_the_cooldown(monkeypatch):
     asked = _gate(monkeypatch, {"ok": True})
     with pytest.raises(ToolError, match="Rate limit"):
         raise_tool_error(RateLimitError("Rate limit detected"), "get_my_profile")
+    await asyncio.gather(*gate._reports)
     assert [op for op, _ in asked] == ["limited"]
+
+
+async def test_a_limit_the_load_reported_is_not_reported_again(monkeypatch):
+    asked = _gate(monkeypatch, {"allow": True}, {"ok": True})
+    with pytest.raises(RateLimitError) as raised:
+        await gate.load(
+            _Page(status=999), "https://www.linkedin.com/feed/", source="revalidate"
+        )
+    with pytest.raises(ToolError):
+        raise_tool_error(raised.value, "get_inbox")
+    await asyncio.gather(*gate._reports)
+    assert [op for op, _ in asked] == ["load", "limited"]
+
+
+async def test_a_cut_answer_is_no_answer(monkeypatch):
+    import http.client
+
+    def cut(*_a, **_k):
+        raise http.client.IncompleteRead(b"{")
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", cut)
+    with pytest.raises(gate.GateRefusedError, match="fails closed"):
+        await gate.load(_Page(), "https://www.linkedin.com/feed/", source="login")
+
+
+async def test_a_send_forgets_the_cached_inbox(monkeypatch):
+    asked = _gate(monkeypatch)
+    mcp = FastMCP("test")
+    mcp.add_middleware(SequentialToolExecutionMiddleware())
+
+    @mcp.tool
+    async def reply_in_thread() -> dict[str, Any]:
+        return {"sent": True}
+
+    await mcp.call_tool("reply_in_thread", {})
+    assert asked == [("forget", {"kind": "inbox"})]
 
 
 def test_a_gate_refusal_is_not_reported_as_a_limit(monkeypatch):
@@ -214,4 +252,4 @@ async def test_a_write_is_never_cached(monkeypatch):
         return {"sent": True}
 
     await mcp.call_tool("send_message", {})
-    assert asked == []
+    assert [op for op, _ in asked] == ["forget"]

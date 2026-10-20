@@ -71,6 +71,8 @@ class SequentialToolExecutionMiddleware(Middleware):
             result = await self._run_serialized(context, call_next, tool_name)
         finally:
             gate.current_tool.reset(token)
+            # Whether the write landed or failed halfway, the cached copy is suspect.
+            await gate.forget_after(tool_name)
         if result.structured_content is not None and not result.is_error:
             await gate.keep(tool_name, arguments, result.structured_content)
         return result
