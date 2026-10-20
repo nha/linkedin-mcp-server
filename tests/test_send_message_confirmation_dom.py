@@ -268,10 +268,14 @@ def compose_page(
 """
 
 
-def profile_page(top_card: str, *, other: str = "") -> str:
+def profile_page(
+    top_card: str, *, other: str = "", title: str = f"{DISPLAY_NAME} | LinkedIn"
+) -> str:
+    # The top card is the section whose single name heading opens the page
+    # title (96a32b0), as on LinkedIn: « Fadi Al Eliwi | LinkedIn ».
     return f"""<!DOCTYPE html>
 <html lang="en">
-  <head><meta charset="utf-8"><title>Profile</title></head>
+  <head><meta charset="utf-8"><title>{title}</title></head>
   <body><main>{top_card}{other}</main></body>
 </html>
 """
@@ -384,6 +388,7 @@ class TestProfileMessageTargetDom:
                 '<section id="bob"><h1>Bob</h1>'
                 '<a href="/messaging/compose/?recipient=BOB">message</a></section>'
             ),
+            title="Alice | LinkedIn",
         )
         sender = _sender(dom_page)
         # The reader borrows the facade's top-card read until the message
@@ -416,6 +421,7 @@ class TestProfileMessageTargetDom:
             other=(
                 f'<section><h1>Alice</h1><a href="{COMPOSE_URL}">message</a></section>'
             ),
+            title="Alice | LinkedIn",
         )
 
         resolution = await read_profile_target(dom_page, html)
@@ -427,7 +433,9 @@ class TestProfileMessageTargetDom:
         assert target.profile_urn == "ACoAAB"
         assert target.compose_url == COMPOSE_URL
 
-    async def test_later_sections_never_compete_with_first_top_card(self, dom_page):
+    async def test_two_cards_named_like_the_title_fail_closed(self, dom_page):
+        # Since 96a32b0 the card is found by its name, not its place: two
+        # sections that both qualify leave no single recipient.
         card = (
             "<section>"
             f'<h1>{DISPLAY_NAME}</h1><a href="{COMPOSE_URL}">message</a>'
@@ -436,8 +444,27 @@ class TestProfileMessageTargetDom:
 
         resolution = await read_profile_target(dom_page, profile_page(card, other=card))
 
+        assert resolution.status == "failed"
+        assert resolution.target is None
+
+    async def test_nested_top_card_beats_the_premium_sidebar(self, dom_page):
+        # LinkedIn's layout of 2026-10-15: the card nested in wrappers with its
+        # name in an h2, and a sidebar inside main with Message links of its own.
+        html = profile_page(
+            "<div><div><section><div>"
+            f'<h2>{DISPLAY_NAME}</h2><a href="{COMPOSE_URL}">Message</a>'
+            "</div></section></div></div>",
+            other=(
+                "<section><h2>Explore Premium profiles</h2>"
+                '<a href="/messaging/compose/?recipient=OTHER">Message</a></section>'
+            ),
+        )
+
+        resolution = await read_profile_target(dom_page, html)
+
         assert resolution.status == "resolved"
         assert resolution.target is not None
+        assert resolution.target.display_name == DISPLAY_NAME
         assert resolution.target.profile_urn == "ACoAAB"
 
     async def test_waits_for_delayed_profile_message_action(self, dom_page):
