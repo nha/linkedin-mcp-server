@@ -17,7 +17,6 @@ import anyio
 import pytest
 from patchright.async_api import async_playwright
 
-from linkedin_mcp_server.scraping import message_sender
 from linkedin_mcp_server.scraping.message_sender import (
     MessageSender,
     _ProfileMessageTarget,
@@ -344,13 +343,19 @@ async def read_profile_target(page, html: str) -> _ProfileMessageTargetResolutio
 
     await page.route("https://www.linkedin.com/**", fulfill)
     await page.goto(f"https://www.linkedin.com{PROFILE_PATH}")
-    # A page that never resolves waits out the whole timeout: 1 s here, not
-    # production's 10 s, or each negative case costs 10 s of CI.
-    with patch.object(message_sender, "_PROFILE_MESSAGE_TARGET_TIMEOUT_MS", 1_000):
-        return await _sender(page)._read_profile_message_target()
+    return await _sender(page)._read_profile_message_target()
 
 
 class TestProfileMessageTargetDom:
+    @pytest.fixture(autouse=True)
+    def _short_target_wait(self, monkeypatch):
+        # A page that never resolves waits out the whole timeout: 1 s here, not
+        # production's 10 s, or each negative case costs 10 s of CI.
+        monkeypatch.setattr(
+            "linkedin_mcp_server.scraping.message_sender._PROFILE_MESSAGE_TARGET_TIMEOUT_MS",
+            1_000,
+        )
+
     async def test_history_only_compose_link_proves_action_absence(self, dom_page):
         html = profile_page(
             f"<section><h1>{DISPLAY_NAME}</h1></section>",
@@ -438,6 +443,25 @@ class TestProfileMessageTargetDom:
         assert target.profile_urn == "ACoAAB"
         assert target.compose_url == COMPOSE_URL
 
+    async def test_visibility_hidden_card_with_visible_children_is_not_the_card(
+        self, dom_page
+    ):
+        # Its heading and link override the hidden section: only the section's
+        # own visibility rules it out, else Bob's link answers for Alice.
+        html = profile_page(
+            '<section style="visibility:hidden">'
+            '<h1 style="visibility:visible">Alice</h1>'
+            '<a style="visibility:visible" href="/messaging/compose/?recipient=BOB">'
+            "message</a></section>",
+            other="<section><h1>Alice</h1></section>",
+            title="Alice | LinkedIn",
+        )
+
+        resolution = await read_profile_target(dom_page, html)
+
+        assert resolution.status == "unavailable"
+        assert resolution.target is None
+
     async def test_two_cards_named_like_the_title_fail_closed(self, dom_page):
         # Since 96a32b0 the card is found by its name, not its place: two
         # sections that both qualify leave no single recipient.
@@ -472,12 +496,16 @@ class TestProfileMessageTargetDom:
         assert resolution.target.display_name == DISPLAY_NAME
         assert resolution.target.profile_urn == "ACoAAB"
 
-    async def test_unread_count_before_the_title_still_names_the_card(self, dom_page):
-        # Logged in with notifications, LinkedIn titles the page « (3) Name | LinkedIn ».
+    @pytest.mark.parametrize("count", ["(3)", "(99+)"])
+    async def test_unread_count_before_the_title_still_names_the_card(
+        self, dom_page, count
+    ):
+        # Logged in with notifications, LinkedIn titles the page « (3) Name | LinkedIn »,
+        # capped at « (99+) ».
         card = f'<section><h1>{DISPLAY_NAME}</h1><a href="{COMPOSE_URL}">message</a></section>'
 
         resolution = await read_profile_target(
-            dom_page, profile_page(card, title=f"(3) {DISPLAY_NAME} | LinkedIn")
+            dom_page, profile_page(card, title=f"{count} {DISPLAY_NAME} | LinkedIn")
         )
 
         assert resolution.status == "resolved"

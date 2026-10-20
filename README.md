@@ -45,10 +45,12 @@ An MCP server that connects AI assistants like Claude to LinkedIn through your o
 | `get_person_profile` | Get profile info with explicit section selection (experience, education, interests, honors, languages, certifications, skills, projects, contact_info, posts) |
 | `get_my_profile` | Get the authenticated user's own LinkedIn profile (same sections as get_person_profile) |
 | `connect_with_person` | Send a connection request or accept an incoming one, with optional note |
+| `get_invitations` | List the connection invitations received and not yet answered |
 | `get_sidebar_profiles` | Extract profile URLs from sidebar recommendation sections ("More profiles for you", "Explore premium profiles", "People you may know") on a profile page |
 | `get_inbox` | List recent conversations from the LinkedIn messaging inbox |
 | `get_conversation` | Read a specific messaging conversation by username or thread ID |
 | `search_conversations` | Search messages by keyword |
+| `reply_in_thread` | Reply inside an existing messaging thread by thread ID, including recruiter InMail (requires confirmation; group conversations fail closed) |
 | `send_message` | Compose/send a new message to a LinkedIn user (requires confirmation; profile-based targeting may open a separate DM instead of replying in an existing thread — see #483) |
 | `get_company_profile` | Extract company information with explicit section selection (posts, jobs); about-section references may include a `company_urn` entry carrying the numeric id used by LinkedIn's people-search `currentCompany` URL facet |
 | `get_company_posts` | Get recent posts from a company's LinkedIn feed |
@@ -58,6 +60,7 @@ An MCP server that connects AI assistants like Claude to LinkedIn through your o
 | `get_saved_jobs` | List job postings saved by the authenticated user |
 | `search_people` | Search for people by keywords, location, connection degree (1st/2nd/3rd), and current company |
 | `get_job_details` | Get detailed information about a specific job posting |
+| `message_job_poster` | Message a job's poster through the listing's hiring-team card (requires confirmation; no card or several posters fail closed) |
 | `get_feed` | Get recent posts from the authenticated user's home feed |
 | `search_posts` | Search posts/content globally by keyword (the "Posts" tab) with an optional recency filter (past-24h/past-week/past-month) |
 | `close_session` | Close browser session and clean up resources |
