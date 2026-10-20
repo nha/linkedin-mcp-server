@@ -163,6 +163,7 @@ def import_from_browser_and_exit() -> None:
     from linkedin_mcp_server.browser_import.orchestrate import (
         import_session_from_browser,
     )
+    from linkedin_mcp_server.core.exceptions import RateLimitError
     from linkedin_mcp_server.exceptions import (
         CookieDecryptionError,
         NoLinkedInSessionFoundError,
@@ -183,6 +184,12 @@ def import_from_browser_and_exit() -> None:
         sys.exit(1)
     except (CookieDecryptionError, AuthenticationError) as e:
         print(f"❌ Could not import session: {e}")
+        sys.exit(1)
+    except RateLimitError as e:
+        # A 429 on /feed/ says nothing about the session: no traceback, and no
+        # advice to sign in again (/code-review of #4).
+        print(f"❌ {e}")
+        print("   Try again in a few minutes; signing in again will not help.")
         sys.exit(1)
 
     if ok:

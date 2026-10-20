@@ -8,6 +8,9 @@ on:
   # is based on the branch below it, so filtering by base branch skipped CI
   # entirely for the stacks this repository's workflow produces.
   pull_request:
+  # By hand too, for a branch no event ran. The dependency review runs on
+  # pull requests only.
+  workflow_dispatch:
 
 jobs:
   lint-and-check:

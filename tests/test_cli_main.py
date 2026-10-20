@@ -628,6 +628,23 @@ def test_import_from_browser_app_bound_message(monkeypatch, capsys, tmp_path):
     assert "could not import session" in capsys.readouterr().out.lower()
 
 
+def test_import_from_browser_rate_limit_is_no_traceback(monkeypatch, capsys, tmp_path):
+    # /code-review of #4: a 429 on the remember-me retry reached the CLI raw.
+    from linkedin_mcp_server.core.exceptions import RateLimitError
+
+    _patch_import_handler(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "linkedin_mcp_server.browser_import.orchestrate.import_session_from_browser",
+        AsyncMock(side_effect=RateLimitError("LinkedIn answered /feed/ with a 429")),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli_main.import_from_browser_and_exit()
+
+    assert exit_info.value.code == 1
+    assert "signing in again will not help" in capsys.readouterr().out
+
+
 def test_main_dispatches_import_before_login(monkeypatch, tmp_path):
     # Driving the dispatch through main() (not the handler directly) proves the
     # wiring: import is gated into ensure_browser_installed and runs before the

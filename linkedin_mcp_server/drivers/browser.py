@@ -190,7 +190,14 @@ async def _feed_auth_succeeds(
     *,
     allow_remember_me: bool = True,
 ) -> bool:
-    """Validate that /feed/ loads without an auth barrier."""
+    """Validate that /feed/ loads without an auth barrier.
+
+    False means the session is dead. A 429 raises RateLimitError and a proxy
+    fault a proxy error instead: neither is evidence about the session.
+    """
+    # The remember-me retry runs after the try, never inside it: what it raises (a
+    # RateLimitError, a proxy error) is its verdict, not the catch-all's, which
+    # read a 429 there as a dead session (/code-review of #3).
     try:
         await goto_reporting_proxy_errors(
             browser.page,
@@ -203,32 +210,30 @@ async def _feed_auth_succeeds(
             "feed-after-goto",
             extra={"allow_remember_me": allow_remember_me},
         )
-        if allow_remember_me:
-            if await resolve_remember_me_prompt(browser.page):
-                await stabilize_navigation("remember-me resolution", logger)
-                await record_page_trace(
-                    browser.page,
-                    "feed-after-remember-me",
-                    extra={"allow_remember_me": allow_remember_me},
-                )
-                return await _feed_auth_succeeds(browser, allow_remember_me=False)
-        barrier = await detect_auth_barrier_quick(browser.page)
-        if barrier is not None:
+        if allow_remember_me and await resolve_remember_me_prompt(browser.page):
+            await stabilize_navigation("remember-me resolution", logger)
             await record_page_trace(
                 browser.page,
-                "feed-auth-barrier",
-                extra={"barrier": barrier},
+                "feed-after-remember-me",
+                extra={"allow_remember_me": allow_remember_me},
             )
-            await _log_feed_failure_context(browser, barrier)
-            return False
-        return True
+        else:
+            barrier = await detect_auth_barrier_quick(browser.page)
+            if barrier is not None:
+                await record_page_trace(
+                    browser.page,
+                    "feed-auth-barrier",
+                    extra={"barrier": barrier},
+                )
+                await _log_feed_failure_context(browser, barrier)
+                return False
+            return True
     except Exception as exc:
         # Before anything else: a proxy fault is not a dead session. Returning
         # False here would have the caller retire a valid profile and tell the
         # user to log in again, which cannot fix an unreachable proxy. Checked
         # first because no page loaded, so there is no remember-me prompt to
-        # resolve, and it also catches a ProxyConnectionError raised by the
-        # recursive retries above, which run inside this try.
+        # resolve.
         raise_if_proxy_error(exc)
         if allow_remember_me and await resolve_remember_me_prompt(browser.page):
             await stabilize_navigation(
@@ -278,6 +283,7 @@ async def _feed_auth_succeeds(
             # profile aside and starts a login through the same broken proxy.
             raise_if_proxy_configured(exc)
         return False
+    return await _feed_auth_succeeds(browser, allow_remember_me=False)
 
 
 def _launch_options() -> tuple[dict[str, Any], dict[str, int]]:
