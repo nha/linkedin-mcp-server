@@ -221,7 +221,7 @@ class TestMessageSurfaceDom:
 
 
 class TestProfileMessageTargetDom:
-    async def test_snapshot_stays_inside_first_top_card(self, dom_page):
+    async def test_snapshot_reads_the_titled_card_not_the_sidebar(self, dom_page):
         await _set_composer_content(
             dom_page,
             """<!DOCTYPE html><html><head><meta charset="utf-8">

@@ -17,6 +17,7 @@ import anyio
 import pytest
 from patchright.async_api import async_playwright
 
+from linkedin_mcp_server.scraping import message_sender
 from linkedin_mcp_server.scraping.message_sender import (
     MessageSender,
     _ProfileMessageTarget,
@@ -343,7 +344,10 @@ async def read_profile_target(page, html: str) -> _ProfileMessageTargetResolutio
 
     await page.route("https://www.linkedin.com/**", fulfill)
     await page.goto(f"https://www.linkedin.com{PROFILE_PATH}")
-    return await _sender(page)._read_profile_message_target()
+    # A page that never resolves waits out the whole timeout: 1 s here, not
+    # production's 10 s, or each negative case costs 10 s of CI.
+    with patch.object(message_sender, "_PROFILE_MESSAGE_TARGET_TIMEOUT_MS", 1_000):
+        return await _sender(page)._read_profile_message_target()
 
 
 class TestProfileMessageTargetDom:
@@ -414,9 +418,10 @@ class TestProfileMessageTargetDom:
 
         assert resolution.status == "unavailable"
 
-    async def test_visibility_hidden_card_does_not_precede_visible_card(self, dom_page):
+    async def test_hidden_card_does_not_precede_visible_card(self, dom_page):
         html = profile_page(
-            '<section style="visibility:hidden"><h1>Bob</h1>'
+            # Named like the title: only its visibility rules it out.
+            '<section style="display:none"><h1>Alice</h1>'
             '<a href="/messaging/compose/?recipient=BOB">message</a></section>',
             other=(
                 f'<section><h1>Alice</h1><a href="{COMPOSE_URL}">message</a></section>'
@@ -466,6 +471,18 @@ class TestProfileMessageTargetDom:
         assert resolution.target is not None
         assert resolution.target.display_name == DISPLAY_NAME
         assert resolution.target.profile_urn == "ACoAAB"
+
+    async def test_unread_count_before_the_title_still_names_the_card(self, dom_page):
+        # Logged in with notifications, LinkedIn titles the page « (3) Name | LinkedIn ».
+        card = f'<section><h1>{DISPLAY_NAME}</h1><a href="{COMPOSE_URL}">message</a></section>'
+
+        resolution = await read_profile_target(
+            dom_page, profile_page(card, title=f"(3) {DISPLAY_NAME} | LinkedIn")
+        )
+
+        assert resolution.status == "resolved"
+        assert resolution.target is not None
+        assert resolution.target.display_name == DISPLAY_NAME
 
     async def test_waits_for_delayed_profile_message_action(self, dom_page):
         html = profile_page(f'<section id="top"><h1>{DISPLAY_NAME}</h1></section>')
