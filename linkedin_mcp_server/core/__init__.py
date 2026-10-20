@@ -21,7 +21,6 @@ from .exceptions import (
 )
 from .proxy_errors import (
     as_proxy_error,
-    goto_reporting_proxy_errors,
     is_proxy_error,
     proxy_hint,
     raise_if_proxy_configured,
@@ -64,7 +63,6 @@ __all__ = [
     "RateLimitError",
     "ScrapingError",
     "as_proxy_error",
-    "goto_reporting_proxy_errors",
     "is_proxy_error",
     "proxy_hint",
     "raise_if_proxy_configured",

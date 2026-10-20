@@ -1,8 +1,29 @@
+import os
 import sys
 
 import pytest
 
+# No test ever reaches the real LinkedIn gate, whose counts are the account's
+# quota: every process the suite starts, a real owner in a subprocess included,
+# asks a port nothing listens on and is refused (fail closed). In-process tests
+# get the allowing stand-in below.
+os.environ["LINKEDIN_GATE_URL"] = "http://127.0.0.1:9/dashboard/linkedin/"
+
 pytest_plugins = ("scraping.support.navigation",)
+
+
+@pytest.fixture(autouse=True)
+def open_gate(request, monkeypatch):
+    """The suite never reaches a gate: an allowing stand-in, unless a test asks
+    for the real client with ``@pytest.mark.real_gate`` (tests/test_gate.py)."""
+    if request.node.get_closest_marker("real_gate"):
+        return
+    from linkedin_mcp_server.core import gate
+
+    def answer(op, body, timeout=5.0):
+        return {"load": {"allow": True}, "cached": {"body": None}}.get(op, {"ok": True})
+
+    monkeypatch.setattr(gate, "_ask", answer)
 
 
 @pytest.fixture(autouse=True)

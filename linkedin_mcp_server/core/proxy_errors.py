@@ -7,7 +7,6 @@ two apart before they draw that conclusion.
 """
 
 import logging
-from typing import Any
 from urllib.parse import quote
 
 from linkedin_mcp_server.config.schema import BrowserConfig
@@ -153,21 +152,6 @@ def raise_if_proxy_configured(error: BaseException) -> None:
         "retries the challenge until the page times out. Check the proxy "
         "address and credentials. The saved LinkedIn session was not changed."
     ) from None
-
-
-async def goto_reporting_proxy_errors(page: Any, url: str, **kwargs: Any) -> Any:
-    """``page.goto(url)``, reporting a proxy fault as :class:`ProxyConnectionError`.
-
-    A shared wrapper rather than a check at each call site: the navigations that
-    happen before any auth check (manual login, cookie-import validation, the
-    runtime bridge) would otherwise surface the raw driver error, which reads
-    like a LinkedIn problem and can carry the proxy URL into a log.
-    """
-    try:
-        return await page.goto(url, **kwargs)
-    except Exception as exc:
-        raise_if_proxy_error(exc)
-        raise
 
 
 def proxy_hint() -> str:

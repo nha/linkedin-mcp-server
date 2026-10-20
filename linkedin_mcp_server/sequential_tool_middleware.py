@@ -13,6 +13,7 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools import ToolResult
 
 from linkedin_mcp_server.config import get_config
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.exceptions import BrowserBusyError
 from linkedin_mcp_server.profile_lease import get_profile_lease
 
@@ -58,6 +59,28 @@ class SequentialToolExecutionMiddleware(Middleware):
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         tool_name = context.message.name
+        arguments = context.message.arguments
+        # A read the gate still holds loads no page (task linkedin-rate-guard:
+        # a repeated read was a repeated page load).
+        if (hit := await gate.cached(tool_name, arguments)) is not None:
+            logger.info("Tool '%s' answered from the gate's cache", tool_name)
+            return ToolResult(structured_content=hit)
+        # Every page this call loads is counted to it by the gate.
+        token = gate.current_tool.set(tool_name)
+        try:
+            result = await self._run_serialized(context, call_next, tool_name)
+        finally:
+            gate.current_tool.reset(token)
+        if result.structured_content is not None and not result.is_error:
+            await gate.keep(tool_name, arguments, result.structured_content)
+        return result
+
+    async def _run_serialized(
+        self,
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+        tool_name: str,
+    ) -> ToolResult:
         wait_started = time.perf_counter()
         logger.debug("Waiting for scraper lock for tool '%s'", tool_name)
         await self._report_progress(
