@@ -28,6 +28,7 @@ from linkedin_mcp_server.bootstrap import (
     stop_background_browser_setup,
 )
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.drivers.browser import (
     close_browser,
     watch_for_handoff_requests,
@@ -100,6 +101,8 @@ async def browser_lifespan(app: FastMCP) -> AsyncIterator[dict[str, Any]]:
     del app
     logger.info("LinkedIn MCP Server starting...")
     initialize_bootstrap(get_runtime_policy())
+    # The client hook refuses every call until a server has said it asks the gate.
+    await gate.hello(__version__)
     handoff_watch: asyncio.Task[None] | None = None
     try:
         # A detached owner must become attachable before it starts any managed

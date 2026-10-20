@@ -558,7 +558,7 @@ async def test_remote_teardown_precedes_chromium_and_preserves_failure(
     async def launch_failed(*_args: object, **_kwargs: object) -> None:
         raise ValueError("navigation failed")
 
-    monkeypatch.setattr(setup, "goto_reporting_proxy_errors", launch_failed)
+    monkeypatch.setattr(setup.gate, "load", launch_failed)
 
     with pytest.raises(ValueError, match="navigation failed"):
         await setup._run_login(

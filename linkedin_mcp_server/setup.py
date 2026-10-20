@@ -19,10 +19,10 @@ from linkedin_mcp_server.config import get_config
 from linkedin_mcp_server.config.schema import PROFILE_HANDOVER_WAIT_SECONDS
 from linkedin_mcp_server.core import (
     BrowserManager,
-    goto_reporting_proxy_errors,
     resolve_remember_me_prompt,
     wait_for_manual_login,
 )
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.exceptions import BrowserBusyError
 from linkedin_mcp_server.login_viewer import LoginViewer, VIEWER_WALL_SECONDS
 from linkedin_mcp_server.process_tree import (
@@ -345,8 +345,8 @@ async def _run_login(
         failure: BaseException | None = None
         try:
             # Navigate to LinkedIn login
-            await goto_reporting_proxy_errors(
-                browser.page, "https://www.linkedin.com/login"
+            await gate.load(
+                browser.page, "https://www.linkedin.com/login", source="login"
             )
             # Let LinkedIn finish rendering the saved-account chooser, then retry
             # the same exact click target before the normal manual-login wait.

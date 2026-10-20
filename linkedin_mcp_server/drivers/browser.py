@@ -22,7 +22,6 @@ from linkedin_mcp_server.core import (
     await_deferring_cancels,
     detect_auth_barrier_quick,
     detect_rate_limit,
-    goto_reporting_proxy_errors,
     is_logged_in,
     proxy_hint,
     raise_if_proxy_configured,
@@ -30,6 +29,7 @@ from linkedin_mcp_server.core import (
     raise_if_proxy_error,
     resolve_remember_me_prompt,
 )
+from linkedin_mcp_server.core import gate
 
 
 from linkedin_mcp_server.browser_launch import build_launch_options, describe_launch
@@ -189,21 +189,28 @@ async def _feed_auth_succeeds(
     browser: BrowserManager,
     *,
     allow_remember_me: bool = True,
+    source: str = "revalidate",
 ) -> bool:
     """Validate that /feed/ loads without an auth barrier.
 
     False means the session is dead. A 429 raises RateLimitError and a proxy
-    fault a proxy error instead: neither is evidence about the session.
+    fault a proxy error instead: neither is evidence about the session; so does
+    the gate's refusal (GateRefusedError). *source* names the load to the gate:
+    a ``revalidate`` the gate skips, because a load passed minutes ago, counts
+    as checked.
     """
     # The remember-me retry runs after the try, never inside it: what it raises (a
     # RateLimitError, a proxy error) is its verdict, not the catch-all's, which
     # read a 429 there as a dead session (/code-review of #3).
     try:
-        await goto_reporting_proxy_errors(
+        response = await gate.load(
             browser.page,
             "https://www.linkedin.com/feed/",
+            source=source,
             wait_until="domcontentloaded",
         )
+        if response is gate.SKIPPED:
+            return True
         await stabilize_navigation("feed navigation", logger)
         await record_page_trace(
             browser.page,
@@ -228,6 +235,10 @@ async def _feed_auth_succeeds(
                 await _log_feed_failure_context(browser, barrier)
                 return False
             return True
+    except RateLimitError:
+        # The gate's refusal or LinkedIn's limit: the barrier check below would
+        # read whatever page was there before and could call the session dead.
+        raise
     except Exception as exc:
         # Before anything else: a proxy fault is not a dead session. Returning
         # False here would have the caller retire a valid profile and tell the
@@ -246,7 +257,9 @@ async def _feed_auth_succeeds(
                     "error": redact_proxy_credentials(f"{type(exc).__name__}: {exc}")
                 },
             )
-            return await _feed_auth_succeeds(browser, allow_remember_me=False)
+            return await _feed_auth_succeeds(
+                browser, allow_remember_me=False, source=source
+            )
         # A failed navigation still leaves a URL and a title behind, and the
         # quick check reads only those. LinkedIn may have committed a redirect
         # to /login and merely missed the load event, which is real evidence
@@ -283,7 +296,7 @@ async def _feed_auth_succeeds(
             # profile aside and starts a login through the same broken proxy.
             raise_if_proxy_configured(exc)
         return False
-    return await _feed_auth_succeeds(browser, allow_remember_me=False)
+    return await _feed_auth_succeeds(browser, allow_remember_me=False, source=source)
 
 
 def _launch_options() -> tuple[dict[str, Any], dict[str, int]]:
@@ -392,9 +405,10 @@ async def validate_imported_cookies(cookie_path: Path, profile_dir: Path) -> boo
     )
     try:
         await browser.start()
-        await goto_reporting_proxy_errors(
+        await gate.load(
             browser.page,
             "https://www.linkedin.com/feed/",
+            source="import",
             wait_until="domcontentloaded",
         )
         await stabilize_navigation("import pre-validate feed navigation", logger)
@@ -402,7 +416,7 @@ async def validate_imported_cookies(cookie_path: Path, profile_dir: Path) -> boo
             accepted = False
         else:
             await stabilize_navigation("import cookie injection", logger)
-            accepted = await _feed_auth_succeeds(browser)
+            accepted = await _feed_auth_succeeds(browser, source="import")
     except BaseException as exc:
         # The confirmation has to be checked on this path too. A plain finally
         # would re-raise before it ran, and the caller would then treat an
@@ -460,9 +474,10 @@ async def _bridge_runtime_profile(
             "bridge-browser-started",
             extra={"profile_dir": str(profile_dir)},
         )
-        await goto_reporting_proxy_errors(
+        await gate.load(
             browser.page,
             "https://www.linkedin.com/feed/",
+            source="bridge",
             wait_until="domcontentloaded",
         )
         await stabilize_navigation("pre-import feed navigation", logger)
@@ -477,7 +492,7 @@ async def _bridge_runtime_profile(
             "bridge-after-cookie-import",
             extra={"cookie_path": str(cookie_path)},
         )
-        if not await _feed_auth_succeeds(browser):
+        if not await _feed_auth_succeeds(browser, source="bridge"):
             raise AuthenticationError(
                 "No authentication found. "
                 f"Run with --login to create a profile.{proxy_hint()}"
@@ -532,7 +547,7 @@ async def _bridge_runtime_profile(
                 "bridge-after-profile-reopen",
                 extra={"profile_dir": str(profile_dir)},
             )
-            if not await _feed_auth_succeeds(reopened):
+            if not await _feed_auth_succeeds(reopened, source="bridge"):
                 logger.warning(
                     "Stored derived runtime profile failed post-commit validation"
                 )

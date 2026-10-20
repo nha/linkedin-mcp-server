@@ -17,6 +17,7 @@ from patchright.async_api import Page
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.callbacks import ProgressCallback
+from linkedin_mcp_server.core import gate as gate_module
 from linkedin_mcp_server.scraping import capture as capture_module
 from linkedin_mcp_server.scraping import company as company_module
 from linkedin_mcp_server.scraping import feed as feed_module
@@ -191,6 +192,14 @@ async def boundaries(
         }
 
     with (
+        # Scripted pages only, and the checker runs outside pytest's stand-in.
+        patch.object(
+            gate_module,
+            "_ask",
+            lambda op, body, timeout=5.0: (
+                {"allow": True} if op == "load" else {"ok": True}
+            ),
+        ),
         patch.object(navigation_module, "record_page_trace", trace),
         patch.object(navigation_module, "detect_auth_barrier_quick", auth_quick),
         patch.object(navigation_module, "detect_auth_barrier", auth),

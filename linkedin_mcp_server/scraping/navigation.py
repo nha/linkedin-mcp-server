@@ -14,7 +14,8 @@ from linkedin_mcp_server.core.auth import (
     detect_auth_barrier_quick,
     resolve_remember_me_prompt,
 )
-from linkedin_mcp_server.core.exceptions import AuthenticationError
+from linkedin_mcp_server.core import gate
+from linkedin_mcp_server.core.exceptions import AuthenticationError, RateLimitError
 from linkedin_mcp_server.core.proxy_errors import (
     raise_if_proxy_error,
     redact_proxy_credentials,
@@ -174,13 +175,18 @@ class PageNavigator:
                 extra={"target_url": url, "wait_until": wait_until},
             )
             try:
-                await page.goto(url, wait_until=wait_until, timeout=30000)
+                await gate.load(page, url, wait_until=wait_until, timeout=30000)
                 await stabilize_navigation(f"goto {url}", logger)
                 await record_page_trace(
                     page,
                     "extractor-after-goto",
                     extra={"target_url": url, "wait_until": wait_until},
                 )
+            except RateLimitError:
+                # The gate's refusal or LinkedIn's limit: no page to read for a
+                # barrier, and nothing to retry. A barrier check here would read
+                # the previous page and call the session dead.
+                raise
             except Exception as exc:
                 # Ahead of the traces below: they record the raw exception text,
                 # which for a proxy failure can quote the proxy URL and land a

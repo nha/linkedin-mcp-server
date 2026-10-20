@@ -167,6 +167,10 @@ class TestExtractPage:
                 "linkedin_mcp_server.scraping.session.asyncio.sleep",
                 new_callable=AsyncMock,
             ),
+            patch(
+                "linkedin_mcp_server.core.gate.report_limited",
+                new_callable=AsyncMock,
+            ) as reported,
         ):
             result = await capture.extract_page(
                 "https://www.linkedin.com/in/testuser/details/experience/",
@@ -176,6 +180,8 @@ class TestExtractPage:
         assert result.text == RATE_LIMITED_SECTION_TEXT
         # goto called twice (initial + retry)
         assert mock_page.goto.await_count == 2
+        # empty twice stops every load for a day
+        reported.assert_awaited_once()
 
     async def test_retry_succeeds_after_rate_limit(self, mock_page):
         """When first attempt is rate-limited but retry succeeds, return content."""

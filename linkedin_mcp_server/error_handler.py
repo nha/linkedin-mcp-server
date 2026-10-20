@@ -11,6 +11,8 @@ from typing import NoReturn
 
 from fastmcp.exceptions import ToolError
 
+from linkedin_mcp_server.core import gate
+from linkedin_mcp_server.core.gate import GateRefusedError, report_limited_soon
 from linkedin_mcp_server.core.proxy_errors import (
     redact_proxy_credentials,
     redacted_copy,
@@ -226,9 +228,19 @@ def raise_tool_error(exception: Exception, context: str = "") -> NoReturn:
             context=context,
         )
 
+    elif isinstance(exception, GateRefusedError):
+        # Refused before any page loaded: no limit to report, nothing to retry.
+        logger.warning("LinkedIn gate refused%s: %s", ctx, exception)
+        raise ToolError(f"{exception} Do not retry.") from exception
+
     elif isinstance(exception, RateLimitError):
         wait_time = getattr(exception, "suggested_wait_time", 300)
         logger.warning("Rate limit%s: %s (wait=%ds)", ctx, exception, wait_time)
+        # The gate stops every load for a day: a retry is what turned one limit
+        # into 28 on 2026-10-20.
+        report_limited_soon(
+            exception, f"{gate.source_now()} answered rate limit: {exception}"
+        )
         raise ToolError(
             f"Rate limit detected. Wait {wait_time} seconds before trying again."
         ) from exception

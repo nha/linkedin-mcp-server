@@ -4,9 +4,9 @@ import pytest
 
 from linkedin_mcp_server.config.schema import AppConfig
 from linkedin_mcp_server.core.exceptions import NetworkError, ProxyConnectionError
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.core.proxy_errors import (
     as_proxy_error,
-    goto_reporting_proxy_errors,
     is_proxy_error,
     proxy_hint,
     raise_if_proxy_error,
@@ -144,21 +144,22 @@ class TestAmbiguousAuthMarker:
 
 
 class TestGotoWrapper:
-    """The navigations that run before any auth check are covered too."""
+    """The navigations that run before any auth check are covered too: every
+    navigation goes through gate.load, which reports a proxy fault the same way."""
 
     async def test_proxy_failure_is_converted(self, proxy_config):
         page = _FakePage(Exception("net::ERR_PROXY_CONNECTION_FAILED"))
         with pytest.raises(ProxyConnectionError):
-            await goto_reporting_proxy_errors(page, "https://www.linkedin.com/login")
+            await gate.load(page, "https://www.linkedin.com/login", source="login")
 
     async def test_other_failures_propagate_unchanged(self, proxy_config):
         page = _FakePage(RuntimeError("net::ERR_ABORTED"))
         with pytest.raises(RuntimeError):
-            await goto_reporting_proxy_errors(page, "https://www.linkedin.com/login")
+            await gate.load(page, "https://www.linkedin.com/login", source="login")
 
     async def test_success_returns_the_response(self, proxy_config):
         page = _FakePage(None)
-        assert await goto_reporting_proxy_errors(page, "https://example.com") == "ok"
+        assert await gate.load(page, "https://example.com", source="login") == "ok"
 
 
 class _FakePage:
