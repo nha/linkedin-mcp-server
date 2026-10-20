@@ -400,7 +400,7 @@ async def test_a_command_past_its_timeout_is_stopped_with_its_children(
 
     detail = await bootstrap._run_login_command(f"sh -c {shlex.quote(script)}")
 
-    assert "did not finish" in detail
+    assert detail is not None and "did not finish" in detail
     child = int(pid_file.read_text())
     for _ in range(50):
         try:

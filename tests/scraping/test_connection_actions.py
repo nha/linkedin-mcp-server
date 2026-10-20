@@ -654,7 +654,9 @@ class TestInviteDialog:
         )
         premium_link.wait_for.assert_awaited_once_with(state="visible", timeout=1234)
 
-    async def test_premium_banner_beside_a_working_textarea_is_not_a_block(self, mock_page):
+    async def test_premium_banner_beside_a_working_textarea_is_not_a_block(
+        self, mock_page
+    ):
         """An upsell advert inside a working note dialog is not an exhausted quota.
 
         LinkedIn shows "Send unlimited, longer invites with Premium" inside the ordinary
@@ -667,7 +669,8 @@ class TestInviteDialog:
         premium_link.is_visible = AsyncMock(return_value=True)
         premium_link.first = premium_link
         mock_page.locator.return_value = premium_link
-        mock_page.evaluate = AsyncMock(return_value=True)  # a usable textarea is present
+        # A usable textarea is present.
+        mock_page.evaluate = AsyncMock(return_value=True)
 
         assert await actions._get_premium_upsell_message() is None
 

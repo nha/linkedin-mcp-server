@@ -224,7 +224,8 @@ class TestProfileMessageTargetDom:
     async def test_snapshot_stays_inside_first_top_card(self, dom_page):
         await _set_composer_content(
             dom_page,
-            """<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><main>
+            """<!DOCTYPE html><html><head><meta charset="utf-8">
+              <title>Test User | LinkedIn</title></head><body><main>
               <section>
                 <h1>Test User</h1>
                 <a style="display:block" href="/messaging/compose/?recipient=ACoAAB">
