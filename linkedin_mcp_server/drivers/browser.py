@@ -222,6 +222,10 @@ async def _feed_auth_succeeds(
             await _log_feed_failure_context(browser, barrier)
             return False
         return True
+    except RateLimitError:
+        # Raised by a recursive retry below (a 429 after the remember-me click):
+        # still a busy session, never turned into a dead one by the catch-all.
+        raise
     except Exception as exc:
         # Before anything else: a proxy fault is not a dead session. Returning
         # False here would have the caller retire a valid profile and tell the

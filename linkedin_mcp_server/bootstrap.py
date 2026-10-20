@@ -3932,7 +3932,13 @@ def login_required_error() -> LoginRequiredError | None:
     if not command:
         return None
     if not _auth_ready() or current_login_generation() == _dead_generation:
-        return LoginRequiredError(command, _login_run_detail)
+        # with its age: a run from minutes ago may predate this death
+        ran = (
+            _login_run_detail
+            and _login_run_at is not None
+            and (f"({int(time.monotonic() - _login_run_at)} s ago) {_login_run_detail}")
+        )
+        return LoginRequiredError(command, ran or None)
     return None
 
 

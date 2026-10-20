@@ -65,7 +65,8 @@ class LoginRequiredError(LinkedInMCPError):
             "The LinkedIn session is dead (expired or missing), and this server "
             "never opens a login window. "
             + (
-                f"It ran « {login_command} » by itself, which left no session: {ran}"
+                f"It ran « {login_command} » by itself and the session is still "
+                f"dead: {ran} Retry this tool once signed in."
                 if ran
                 else f"Run « {login_command} » to sign in again, then retry this tool."
             )

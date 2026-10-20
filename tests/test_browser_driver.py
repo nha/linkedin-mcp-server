@@ -1397,3 +1397,34 @@ class TestTheCookieExportCannotStrandTheProfile:
         # on to the teardown, which is the part that must not be skipped.
         assert exported is False
         assert took < 2, f"the export was still unbounded ({took:.1f}s)"
+
+
+@pytest.mark.asyncio
+async def test_feed_auth_http_error_on_the_remember_me_retry_is_a_rate_limit():
+    # /code-review of #3: the 429 came on the retry after the remember-me click,
+    # inside the outer try, and its catch-all turned it back into False.
+    browser = _make_mock_browser()
+    browser.page.goto = AsyncMock(
+        side_effect=[
+            None,
+            Exception(
+                "Page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at "
+                "https://www.linkedin.com/feed/"
+            ),
+        ]
+    )
+
+    with (
+        patch(
+            "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        pytest.raises(RateLimitError),
+    ):
+        await _feed_auth_succeeds(browser)
