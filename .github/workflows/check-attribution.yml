@@ -21,9 +21,6 @@ env:
 
 jobs:
   check-bot-coauthors:
-    # Upstream's rule. This fork's owner has his agents sign their commits
-    # with a Co-Authored-By trailer, so the check runs on upstream only.
-    if: github.repository == 'stickerdaniel/linkedin-mcp-server'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -31,6 +28,10 @@ jobs:
           fetch-depth: 0
 
       - name: Check for bot Co-Authored-By lines
+        # Upstream's rule. This fork's owner has his agents sign their commits
+        # with a Co-Authored-By trailer, so this step runs on upstream only; the
+        # author check below runs everywhere.
+        if: github.repository == 'stickerdaniel/linkedin-mcp-server'
         env:
           BASE_REF: ${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, patch
@@ -127,6 +129,13 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     assert len(TOOL_DELEGATES) == 21
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
     assert "close_session" not in TOOL_DELEGATES
+
+
+async def test_the_manifest_lists_every_registered_tool():
+    manifest = Path(__file__).parents[2] / "manifest.json"
+    listed = {tool["name"] for tool in json.loads(manifest.read_text())["tools"]}
+
+    assert listed == {tool.name for tool in await create_mcp_server().list_tools()}
 
 
 async def test_company_posts_delegate_matches_registered_tool_consumer():

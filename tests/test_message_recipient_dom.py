@@ -227,14 +227,14 @@ class TestProfileMessageTargetDom:
             """<!DOCTYPE html><html><head><meta charset="utf-8">
               <title>Test User | LinkedIn</title></head><body><main>
               <section>
-                <h1>Test User</h1>
-                <a style="display:block" href="/messaging/compose/?recipient=ACoAAB">
-                  Nachricht
+                <a style="display:block" href="/messaging/compose/?recipient=OTHER">
+                  Sidebar
                 </a>
               </section>
               <section>
-                <a style="display:block" href="/messaging/compose/?recipient=OTHER">
-                  Sidebar
+                <h1>Test User</h1>
+                <a style="display:block" href="/messaging/compose/?recipient=ACoAAB">
+                  Nachricht
                 </a>
               </section>
             </main></body></html>
@@ -243,6 +243,7 @@ class TestProfileMessageTargetDom:
 
         result = await dom_page.evaluate(_PROFILE_MESSAGE_TARGET_JS)
 
+        assert result["status"] == "resolved"
         assert result["displayName"] == "Test User"
         assert result["composeHrefs"] == ["/messaging/compose/?recipient=ACoAAB"]
 
