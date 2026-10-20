@@ -58,11 +58,17 @@ class LoginRequiredError(LinkedInMCPError):
     """
 
     def __init__(self, login_command: str, ran: str | None = None):
+        # Once the command ran, its own last lines say what to do: a command that
+        # only records the death (and names the sign-in) is not one to run
+        # again, so the message stops telling the client to run it.
         super().__init__(
             "The LinkedIn session is dead (expired or missing), and this server "
-            f"never opens a login window. Run « {login_command} » to sign in "
-            "again, then retry this tool."
-            + (f" It ran by itself and failed: {ran}" if ran else "")
+            "never opens a login window. "
+            + (
+                f"It ran « {login_command} » by itself, which left no session: {ran}"
+                if ran
+                else f"Run « {login_command} » to sign in again, then retry this tool."
+            )
         )
 
 
