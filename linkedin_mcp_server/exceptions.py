@@ -66,7 +66,7 @@ class LoginRequiredError(LinkedInMCPError):
             "never opens a login window. "
             + (
                 f"It ran « {login_command} » by itself and the session is still "
-                f"dead: {ran} Retry this tool once signed in."
+                f"dead; retry this tool once signed in. Its output: {ran}"
                 if ran
                 else f"Run « {login_command} » to sign in again, then retry this tool."
             )
