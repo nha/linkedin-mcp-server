@@ -61,6 +61,7 @@ An MCP server that connects AI assistants like Claude to LinkedIn through your o
 | `search_people` | Search for people by keywords, location, connection degree (1st/2nd/3rd), and current company |
 | `get_job_details` | Get detailed information about a specific job posting |
 | `message_job_poster` | Message a job's poster through the listing's hiring-team card (requires confirmation; no card or several posters fail closed) |
+| `easy_apply` | Apply to a job through LinkedIn's Easy Apply form with a message and a CV (requires confirmation; a required field left empty stops before submit and returns its labels) |
 | `get_feed` | Get recent posts from the authenticated user's home feed |
 | `search_posts` | Search posts/content globally by keyword (the "Posts" tab) with an optional recency filter (past-24h/past-week/past-month) |
 | `close_session` | Close browser session and clean up resources |

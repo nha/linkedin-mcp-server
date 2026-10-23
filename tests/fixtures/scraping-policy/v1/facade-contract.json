@@ -20,6 +20,10 @@
         "coroutine": true,
         "signature": "(self, username: 'str', *, note: 'str | None' = None) -> 'dict[str, Any]'"
       },
+      "easy_apply": {
+        "coroutine": true,
+        "signature": "(self, job_id: 'str', message: 'str', *, cv_path: 'str | None' = None, confirm_submit: 'bool', screenshot_path: 'str | None' = None) -> 'dict[str, Any]'"
+      },
       "extract_feed": {
         "coroutine": true,
         "signature": "(self, num_posts: 'int' = 10) -> 'ExtractedSection'"
@@ -103,6 +107,7 @@
     },
     "tool_methods": [
       "connect_with_person",
+      "easy_apply",
       "extract_feed",
       "extract_page",
       "get_company_employees",
@@ -158,6 +163,59 @@
           },
           "required": [
             "linkedin_username"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "easy_apply": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_submit": {
+              "description": "Must be True to submit; False walks to the submit\nstep, reports it (status ``ready``) and submits nothing.",
+              "type": "boolean"
+            },
+            "cv_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Absolute path of the CV file to upload."
+            },
+            "job_id": {
+              "description": "LinkedIn job ID (e.g., \"4469816503\")",
+              "type": "string"
+            },
+            "message": {
+              "description": "Text for the form's free field (cover letter, additional\ninformation); line breaks are kept.",
+              "type": "string"
+            },
+            "screenshot_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Where to save a screenshot of the last screen,\nthe proof of a submission."
+            }
+          },
+          "required": [
+            "job_id",
+            "message",
+            "confirm_submit"
           ],
           "type": "object"
         },
