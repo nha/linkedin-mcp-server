@@ -228,6 +228,7 @@ FORGETS = {
     "send_message": "inbox",
     "reply_in_thread": "inbox",
     "message_job_poster": "inbox",
+    "easy_apply": "jobs",
     "connect_with_person": "invitations",
 }
 

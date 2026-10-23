@@ -52,6 +52,7 @@ PUBLIC_SIGNATURES = {
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None, preview: 'bool' = False) -> 'dict[str, Any]'",
     "reply_in_thread": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False, attachments: 'list[str] | None' = None) -> 'dict[str, Any]'",
     "message_job_poster": "(self, job_id: 'str', message: 'str', *, confirm_send: 'bool', preview: 'bool' = False) -> 'dict[str, Any]'",
+    "easy_apply": "(self, job_id: 'str', message: 'str', *, cv_path: 'str | None' = None, confirm_submit: 'bool', screenshot_path: 'str | None' = None) -> 'dict[str, Any]'",
 }
 
 DELEGATES = {
@@ -77,6 +78,7 @@ DELEGATES = {
     "send_message": ("_message_sender", "send_message"),
     "reply_in_thread": ("_message_sender", "reply_in_thread"),
     "message_job_poster": ("_message_sender", "message_job_poster"),
+    "easy_apply": ("_easy_apply", "easy_apply"),
 }
 
 DELEGATE_CALLS = {
@@ -102,6 +104,7 @@ DELEGATE_CALLS = {
     "send_message": "self._message_sender.send_message(linkedin_username, message, confirm_send=confirm_send, profile_urn=profile_urn, preview=preview)",
     "reply_in_thread": "self._message_sender.reply_in_thread(thread_id, message, confirm_send=confirm_send, preview=preview, attachments=attachments)",
     "message_job_poster": "self._message_sender.message_job_poster(job_id, message, confirm_send=confirm_send, preview=preview)",
+    "easy_apply": "self._easy_apply.easy_apply(job_id, message, cv_path=cv_path, confirm_submit=confirm_submit, screenshot_path=screenshot_path)",
 }
 
 FACADE_STATE = {
@@ -110,6 +113,7 @@ FACADE_STATE = {
     "_connection",
     "_content",
     "_conversations",
+    "_easy_apply",
     "_feed",
     "_jobs",
     "_message_sender",

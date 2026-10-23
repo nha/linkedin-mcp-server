@@ -64,6 +64,7 @@ TOOL_DELEGATES = {
     "send_message": "send_message",
     "reply_in_thread": "reply_in_thread",
     "message_job_poster": "message_job_poster",
+    "easy_apply": "easy_apply",
 }
 
 
@@ -97,6 +98,7 @@ async def test_constructor_export_and_dependency_use_the_same_facade(monkeypatch
         "_connection",
         "_content",
         "_conversations",
+        "_easy_apply",
         "_feed",
         "_jobs",
         "_message_sender",
@@ -124,9 +126,9 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     tools = await create_mcp_server().list_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert len(tool_names) == 22
+    assert len(tool_names) == 23
     assert tool_names == {*TOOL_DELEGATES, "close_session"}
-    assert len(TOOL_DELEGATES) == 21
+    assert len(TOOL_DELEGATES) == 22
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
     assert "close_session" not in TOOL_DELEGATES
 
@@ -542,7 +544,7 @@ def test_facade_methods_are_exactly_the_frozen_coroutine_surface():
     }
 
     assert actual == expected
-    assert len(TOOL_FACADE_METHODS) == 20
+    assert len(TOOL_FACADE_METHODS) == 21
     assert len(COMPATIBILITY_METHODS) == 2
 
 

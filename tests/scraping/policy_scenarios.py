@@ -969,6 +969,27 @@ async def _invalid_message_scenario(message: str, label: str) -> dict[str, Any]:
     )
 
 
+async def _easy_apply_invalid_job_scenario() -> dict[str, Any]:
+    """An invalid job id is refused before any page: the browser-free path of easy_apply."""
+    recorder = TraceRecorder("easy_apply__invalid_job", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context("easy_apply", "message"):
+            result = await extractor.easy_apply(
+                "not-a-job", _MULTILINE_TEXT, confirm_submit=True
+            )
+    page.assert_clean()
+    return recorder.trace(
+        {
+            "method": "easy_apply",
+            "arguments": {"job_id": "not-a-job", "confirm_submit": True},
+        },
+        result,
+    )
+
+
 async def _single_capture_facade_scenario(method: str) -> dict[str, Any]:
     name = f"{method}__baseline"
     recorder = TraceRecorder(name, _COMMON_ALLOWED)
@@ -1175,6 +1196,7 @@ TOOL_FACADE_METHODS = {
     "send_message",
     "reply_in_thread",
     "message_job_poster",
+    "easy_apply",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -1240,6 +1262,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         ),
         "reply-group.json": await _thread_reply_group_scenario(),
         "job-poster-dry-run.json": await _job_poster_dry_run_scenario(),
+        "easy-apply-invalid-job.json": await _easy_apply_invalid_job_scenario(),
         "connect.json": await _connect_scenario(),
         "get-my-profile.json": await _get_my_profile_scenario(),
         "sidebar-profiles.json": await _sidebar_scenario(),

@@ -17,6 +17,7 @@ from linkedin_mcp_server.scraping.contracts import (
     rate_limited_section_error as rate_limited_section_error,
 )
 from linkedin_mcp_server.scraping.conversations import ConversationReader
+from linkedin_mcp_server.scraping.easy_apply import EasyApply
 from linkedin_mcp_server.scraping.feed import FeedScraper
 from linkedin_mcp_server.scraping.job_pages import JobPageReader
 from linkedin_mcp_server.scraping.jobs import JobScraper
@@ -52,6 +53,7 @@ class LinkedInExtractor:
         person = PersonScraper(session, navigator, capture, profile_page)
 
         self._content = content
+        self._easy_apply = EasyApply(session, navigator)
         self._capture = capture
         self._feed = FeedScraper(session, navigator, content)
         self._message_sender = message_sender
@@ -291,4 +293,22 @@ class LinkedInExtractor:
             message,
             confirm_send=confirm_send,
             preview=preview,
+        )
+
+    async def easy_apply(
+        self,
+        job_id: str,
+        message: str,
+        *,
+        cv_path: str | None = None,
+        confirm_submit: bool,
+        screenshot_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Fill a job's Easy Apply form and submit it on confirmation."""
+        return await self._easy_apply.easy_apply(
+            job_id,
+            message,
+            cv_path=cv_path,
+            confirm_submit=confirm_submit,
+            screenshot_path=screenshot_path,
         )

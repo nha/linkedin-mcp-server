@@ -23,6 +23,7 @@ a page-owning collaborator.
 | `content` | `PageContentReader` | `page-owning` |
 | `contracts` | `ExtractedSection`, `FilterValidationError`, `JOB_ID_RE`, `MESSAGE_THREAD_ID_RE`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `invalid_message_reason()`, `job_url()`, `message_action_result()`, `message_thread_url()`, `normalize_message_text()`, `rate_limited_section_error()`, `refuse_an_invalid_job_message()`, `refuse_an_invalid_message()`, `refuse_an_invalid_thread_reply()` | `browser-free` |
 | `conversations` | `ConversationReader`, `strip_select_conversation_prefix()` | `page-owning` |
+| `easy_apply` | `APPLY_BUTTON`, `CONFIRMATION_JS`, `EasyApply`, `FILE_INPUT`, `MAX_STEPS`, `NEXT_BUTTON`, `REVIEW_BUTTON`, `STEP_JS`, `SUBMIT_BUTTON`, `easy_apply_result()` | `page-owning` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
@@ -51,7 +52,8 @@ a page-owning collaborator.
 - `content` -> `session`, `text`
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `navigation`, `profile_page`, `session`, `text`
-- `extractor` -> `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `feed`, `job_pages`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `session`, `text`
+- `easy_apply` -> `contracts`, `navigation`, `session`
+- `extractor` -> `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `easy_apply`, `feed`, `job_pages`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `session`, `text`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
 - `fields` -> `capture`
@@ -73,6 +75,7 @@ a page-owning collaborator.
 
 - `click_button_by_text`
 - `connect_with_person`
+- `easy_apply`
 - `extract_feed`
 - `extract_page`
 - `get_company_employees`
@@ -101,6 +104,7 @@ a page-owning collaborator.
 - `_connection`
 - `_content`
 - `_conversations`
+- `_easy_apply`
 - `_feed`
 - `_jobs`
 - `_message_sender`
