@@ -560,14 +560,16 @@ _THREAD_TEXT_JS = r"""() => ({
         document.querySelectorAll('main [contenteditable="true"]')
     ).map(editor => editor.innerText || ''),
 })"""
-# A click can start the send just before the reload: time for it to leave.
-_THREAD_SETTLE_SECONDS = 2.0
+# A click or the dialog's answer can start the send just before the reload, and a load
+# behind it loses it: time for it to leave.
+_THREAD_SETTLE_SECONDS = 5.0
 # A reloaded conversation took up to 13 s to show its messages (trace of 2026-11-05).
 _THREAD_READ_SECONDS = 20.0
 # The count before a send: the composer renders before the messages, so it waits until
 # the page's text has held this long, within the cap.
-_THREAD_STABLE_SECONDS = 2.0
-_THREAD_STABLE_CAP_SECONDS = 6.0
+# ponytail: a history later than this undercounts, and only a repeated text feels it.
+_THREAD_STABLE_SECONDS = 3.0
+_THREAD_STABLE_CAP_SECONDS = 15.0
 # A compose page moves to its thread's route once the message leaves.
 _THREAD_ROUTE_SECONDS = 5.0
 _CONTACT_DIALOG_TIMEOUT_MS = 3000
@@ -1733,40 +1735,61 @@ class MessageSender:
             logger.debug("Message send could not be confirmed", exc_info=True)
             return False
 
-    async def _decline_contact_dialog(self) -> bool:
-        """Answer « Share your contact info? » with no, and say if it was open.
+    async def _decline_contact_dialog(self) -> None:
+        """Answer « Share your contact info? » with no, when it is open.
 
         A recruiter's InMail opens this dialog on the first reply's Send: the
         composer empties, and the reply leaves only once the dialog is answered, so
         a page load behind it lost the reply (2026-11-03, 2026-11-05). His contact
         details never leave on a send: the answer is always no.
         """
-        decline = self._page.locator(
-            "button", has_text=re.compile(CONTACT_DECLINE_BUTTON["en"])
+        decline = (
+            self._page.locator("button")
+            .filter(has_text=re.compile(CONTACT_DECLINE_BUTTON["en"]))
+            .first
         )
         try:
             await decline.wait_for(state="visible", timeout=_CONTACT_DIALOG_TIMEOUT_MS)
             await decline.click()
-        except PlaywrightTimeoutError:
-            return False
+            await decline.wait_for(state="hidden", timeout=_CONTACT_DIALOG_TIMEOUT_MS)
+        except Exception:
+            # No dialog, the usual case. One that stayed open reads as not sent.
+            logger.debug("No contact info dialog answered", exc_info=True)
+            return
         logger.info("Declined LinkedIn's contact info dialog on a send")
-        return True
-
-    async def _count_in_thread(self, message: str) -> int:
-        """How many times the open conversation shows ``message``, composer aside."""
-        return self._count_in_text(await self._page.evaluate(_THREAD_TEXT_JS), message)
 
     @staticmethod
     def _count_in_text(data: dict[str, Any], message: str) -> int:
-        def squash(text: str) -> str:
-            return re.sub(r"\s+", "", text)
+        """How many times the page shows ``message`` as whole lines, composer aside.
 
-        wanted = squash(message)
+        Whole lines: "OK" is not in "BOOK", nor a message in a sidebar's "You: ..."
+        preview. Whitespace aside, as the page can wrap or collapse a message's lines.
+        """
+
+        def squashed_lines(text: str) -> list[str]:
+            lines = (re.sub(r"\s+", "", line) for line in text.splitlines())
+            return [line for line in lines if line]
+
+        wanted = re.sub(r"\s+", "", message)
+
+        def count(text: str) -> int:
+            lines, found = squashed_lines(text), 0
+            for start in range(len(lines)):
+                run = ""
+                for line in lines[start:]:
+                    run += line
+                    if not wanted.startswith(run):
+                        break
+                    if run == wanted:
+                        found += 1
+                        break
+            return found
+
         # ponytail: text, not nodes: no message selector is proven on LinkedIn's
         # page, and the send's own observer stopped matching. An editor stripped
         # with the chrome is still taken back out: an undercount says not sent.
-        return squash(strip_conversation_chrome(data["main"])).count(wanted) - sum(
-            squash(editor).count(wanted) for editor in data["editors"]
+        return count(strip_conversation_chrome(data["main"])) - sum(
+            count(editor) for editor in data["editors"]
         )
 
     async def _settled_count_in_thread(self, message: str) -> int:
@@ -1779,7 +1802,7 @@ class MessageSender:
             now = time.monotonic()
             if len(data["main"]) != length:
                 length, changed = len(data["main"]), now
-            elif (
+            if (
                 now - changed >= _THREAD_STABLE_SECONDS
                 or now - start >= _THREAD_STABLE_CAP_SECONDS
             ):
@@ -1788,31 +1811,38 @@ class MessageSender:
 
     async def _thread_shows_message(self, message: str, before: int) -> bool | None:
         """Reload the conversation and say if the message arrived: LinkedIn's answer,
-        not the local bubble. None when the page reaches no thread's route.
+        not the local bubble. None when the read proves nothing: the page reaches no
+        thread's route, lands on another page, or never shows the history counted before.
 
         Counted as the read it is, not as a second write of the send. A load the
         gate refuses raises, and the send answers ``send_unconfirmed``.
 
-        ponytail: a compose page's count was taken with no history shown, so resending
-        a text its thread already holds reads as sent; a reply's count sees the history.
+        ponytail: a compose page's count was taken with no history shown, so a text its
+        thread already holds counts as arrived. A compose page reaches a thread's route
+        only once the message left, so that says little more than the route did.
         """
         deadline = time.monotonic() + _THREAD_ROUTE_SECONDS
-        while "/messaging/thread/" not in urlparse(self._page.url).path:
+        while not _MESSAGE_THREAD_PATH_RE.fullmatch(urlparse(self._page.url).path):
             if time.monotonic() >= deadline:
                 return None
             await asyncio.sleep(0.25)
         await asyncio.sleep(_THREAD_SETTLE_SECONDS)
+        route = urlparse(self._page.url).path
         token = gate.current_tool.set("get_conversation")
         try:
             await self._navigator._navigate_to_page(self._page.url)
         finally:
             gate.current_tool.reset(token)
+        if urlparse(self._page.url).path != route:
+            return None
         deadline = time.monotonic() + _THREAD_READ_SECONDS
         while True:
-            if await self._count_in_thread(message) > before:
+            data = await self._page.evaluate(_THREAD_TEXT_JS)
+            count = self._count_in_text(data, message)
+            if count > before:
                 return True
             if time.monotonic() >= deadline:
-                return False
+                return None if count < before or not data["main"].strip() else False
             await asyncio.sleep(0.5)
 
     async def _dispose_message_confirmation(
@@ -2426,7 +2456,7 @@ class MessageSender:
                     if not confirmed:
                         await self._decline_contact_dialog()
                     shown = await self._thread_shows_message(message, shown_before)
-                    if shown is False:
+                    if shown is False and not confirmed:
                         return contracts.message_action_result(
                             self._page.url,
                             "not_sent",
@@ -2436,16 +2466,15 @@ class MessageSender:
                             recipient_selected=recipient_selected,
                             retry_safe=False,
                         )
-                    # ponytail: a send left on no thread's route cannot reload what
-                    # it sent, so it keeps the observer's answer
-                    if shown is None and not confirmed:
+                    # ponytail: a read that proves nothing keeps the observer's answer;
+                    # the two disagreeing is an unknown, never a sent
+                    if shown is not True and (shown is False or not confirmed):
                         return contracts.message_action_result(
                             self._page.url,
                             "send_unconfirmed",
                             "The message was submitted but LinkedIn did not confirm "
-                            "the message-list transition in time. Check the "
-                            "conversation before retrying; retrying may deliver the "
-                            "message twice.",
+                            "it in time. Check the conversation before retrying; "
+                            "retrying may deliver the message twice.",
                             recipient_selected=recipient_selected,
                             retry_safe=False,
                         )

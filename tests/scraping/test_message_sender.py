@@ -165,6 +165,25 @@ class TestMessageTargetUrls:
         )
 
 
+@pytest.fixture(autouse=True)
+def _no_thread_read():
+    """These pages are mocks with no thread to read: test_send_message_confirmation_dom
+    reads a stand-in one. Answering None leaves each send the observer's answer."""
+    with (
+        patch.object(
+            MessageSender,
+            "_settled_count_in_thread",
+            AsyncMock(return_value=0),
+        ),
+        patch.object(
+            MessageSender,
+            "_thread_shows_message",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        yield
+
+
 class TestReadProfileMessageTarget:
     async def test_accepts_safe_final_vanity_redirect(self, mock_page):
         mock_page.evaluate = AsyncMock(

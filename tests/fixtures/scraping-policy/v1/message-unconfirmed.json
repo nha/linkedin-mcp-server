@@ -198,6 +198,181 @@
       "section": "message"
     },
     {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
       "arg": {
         "expectedRoute": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
         "target": {
@@ -290,6 +465,668 @@
       "timeout_ms": null
     },
     {
+      "call": "send_message",
+      "kind": "locator.create",
+      "locator": "buttons",
+      "parent": null,
+      "section": "message",
+      "selector": "button"
+    },
+    {
+      "call": "send_message",
+      "kind": "locator.derive",
+      "locator": "contact-decline",
+      "operation": "filter:No, don.t share/re.UNICODE",
+      "parent": "buttons",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "locator.derive",
+      "locator": "contact-decline-1",
+      "operation": "first",
+      "parent": "contact-decline",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "locator.wait_for",
+      "locator": "contact-decline-1",
+      "section": "message",
+      "state": "visible",
+      "timeout_ms": 3000
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 5.0,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "extra": {
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "requested_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "section": "message",
+      "timeout_ms": 30000,
+      "wait_until": "domcontentloaded"
+    },
+    {
+      "call": "send_message",
+      "description": "goto https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "extra": {
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.5,
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "evaluate",
+      "operation": "thread_text",
+      "program_digest": "81127f02d2c2",
+      "section": "message"
+    },
+    {
       "arg": {
         "owner": {
           "handle": "handle-1"
@@ -318,7 +1155,7 @@
     }
   ],
   "result": {
-    "message": "The message was submitted but LinkedIn did not confirm the message-list transition in time. Check the conversation before retrying; retrying may deliver the message twice.",
+    "message": "The message was submitted but LinkedIn did not confirm it in time. Check the conversation before retrying; retrying may deliver the message twice.",
     "recipient_selected": true,
     "retry_safe": false,
     "sent": false,

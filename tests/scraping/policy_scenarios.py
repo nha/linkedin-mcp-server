@@ -12,6 +12,7 @@ from unittest.mock import patch
 import asyncio
 import inspect
 import json
+import re
 
 from patchright.async_api import Page
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -28,6 +29,7 @@ from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import session as session_module
 from linkedin_mcp_server.scraping import LinkedInExtractor
 from linkedin_mcp_server.scraping.fields import COMPANY_SECTIONS, PERSON_SECTIONS
+from linkedin_mcp_server.scraping.text import CONTACT_DECLINE_BUTTON
 from linkedin_mcp_server.server import create_mcp_server
 
 from .support.policy_trace import (
@@ -762,6 +764,18 @@ async def _messaging_submission_scenario(outcome: str) -> dict[str, Any]:
                 if outcome == "sent"
                 else PlaywrightTimeoutError("same-node transition not observed"),
             )
+            if outcome != "sent":
+                buttons = page.declare_locator("button", "buttons")
+                page.declare_derived(
+                    buttons.semantic_id,
+                    f"filter:{CONTACT_DECLINE_BUTTON['en']}/{re.RegexFlag(re.UNICODE)}",
+                    "contact-decline",
+                )
+                page.declare_derived("contact-decline", "first", "contact-decline-1")
+                page.script(
+                    "contact-decline-1.wait_for",
+                    PlaywrightTimeoutError("no contact info dialog"),
+                )
             _script_confirmation_cleanup(page)
 
     extractor = _extractor(page)

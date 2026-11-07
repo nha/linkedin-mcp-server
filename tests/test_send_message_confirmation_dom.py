@@ -8,6 +8,7 @@ JavaScript in headless Chromium without making a LinkedIn request or write.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Sequence
 import time
@@ -1620,7 +1621,7 @@ class TestSendReadsTheThread:
 
     async def reply(self, page, html, served, message=MULTILINE_MESSAGE) -> dict:
         """``served(posted)`` is the page the load gets; posted: LinkedIn took it."""
-        self.loads = []
+        self.loads: list[tuple[str, str | None]] = []
 
         async def load(_navigator, url, **_):
             self.loads.append((url, gate.current_tool.get()))
@@ -1725,6 +1726,90 @@ class TestSendReadsTheThread:
 
         assert result["status"] == "not_sent"
         assert result["sent"] is False
+
+    async def test_another_line_holding_the_text_does_not_count(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, "BOOK", "You: OK"),
+            message="OK",
+        )
+
+        assert result["status"] == "not_sent"
+
+    @pytest.mark.parametrize(
+        "served",
+        [
+            "<!DOCTYPE html><html><body><main></main></body></html>",
+            # the page counted one copy before the send, and shows none now
+            "<!DOCTYPE html><html><body><main><p>Other</p></main></body></html>",
+        ],
+    )
+    async def test_a_thread_that_never_renders_is_unconfirmed(self, dom_page, served):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: served,
+            message=MESSAGE,
+        )
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["retry_safe"] is False
+
+    async def test_a_load_landing_on_another_page_is_unconfirmed(self, dom_page):
+        moved = "<script>history.pushState({}, '', '/messaging/');</script>"
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, MULTILINE_MESSAGE) + moved,
+        )
+
+        assert result["status"] == "send_unconfirmed"
+
+    async def test_the_observer_and_the_read_disagreeing_is_unconfirmed(self, dom_page):
+        with patch.object(
+            MessageSender, "_message_send_confirmed", AsyncMock(return_value=True)
+        ):
+            result = await self.reply(
+                dom_page,
+                self.page_with(LOCAL_BUBBLE_SEND_JS),
+                lambda _: self.server_page(MESSAGE),
+            )
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["sent"] is False
+
+    async def test_two_decline_buttons_still_answer_no(self, dom_page):
+        two = CONTACT_DIALOG_SEND_JS.replace(
+            '<button id="yes"',
+            '<button type="button">No, don\\u2019t share</button><button id="yes"',
+        )
+        assert two != CONTACT_DIALOG_SEND_JS
+        result = await self.reply(
+            dom_page,
+            self.page_with(two),
+            lambda posted: self.server_page(
+                MESSAGE, *([MULTILINE_MESSAGE] if posted else [])
+            ),
+        )
+
+        assert result["status"] == "sent"
+
+    async def test_a_page_that_never_settles_stops_at_the_cap(self, dom_page):
+        await dom_page.set_content(
+            "<main id=m>x</main><script>"
+            "setInterval(() => (m.textContent += 'x'), 20)</script>"
+        )
+        module = "linkedin_mcp_server.scraping.message_sender"
+        with (
+            patch(f"{module}._THREAD_STABLE_SECONDS", 60),
+            patch(f"{module}._THREAD_STABLE_CAP_SECONDS", 0.3),
+        ):
+            count = await asyncio.wait_for(
+                _sender(dom_page)._settled_count_in_thread("absent"), 5
+            )
+
+        assert count == 0
 
     async def test_the_read_is_a_read_for_the_gate(self, dom_page):
         await self.reply(
