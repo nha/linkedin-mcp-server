@@ -17,6 +17,8 @@ import anyio
 import pytest
 from patchright.async_api import async_playwright
 
+from linkedin_mcp_server.core import gate
+from linkedin_mcp_server.core.exceptions import RateLimitError
 from linkedin_mcp_server.scraping.message_sender import (
     MessageSender,
     _ProfileMessageTarget,
@@ -1560,3 +1562,209 @@ class TestMessageJobPosterDom:
 
         navigate.assert_not_awaited()
         assert result["status"] == "invalid_job"
+
+
+# A local bubble that keeps its id: the send's observer never confirms it, as on
+# LinkedIn since 2026-11-03.
+LOCAL_BUBBLE_SEND_JS = """
+  document.getElementById('send').addEventListener('click', event => {
+    event.preventDefault();
+    const editor = document.getElementById('composer');
+    const entry = messageItem(editor.innerText, 'local-id');
+    editor.textContent = '';
+    document.getElementById('thread').appendChild(entry);
+    document.body.dataset.clicked = 'true';
+  });
+"""
+
+# Ruby's InMail: Send empties the composer and opens the dialog; the reply leaves on
+# an answer, and a page load behind the dialog loses it.
+CONTACT_DIALOG_SEND_JS = """
+  document.getElementById('send').addEventListener('click', event => {
+    event.preventDefault();
+    const editor = document.getElementById('composer');
+    const text = editor.innerText;
+    editor.textContent = '';
+    const dialog = document.createElement('div');
+    dialog.innerHTML = '<h2>Share your contact info?</h2>'
+      + '<button id="no" type="button">No, don\\u2019t share</button>'
+      + '<button id="yes" type="button">Yes, please share</button>';
+    document.body.appendChild(dialog);
+    const answer = key => () => {
+      document.body.dataset.answer = key;
+      window.posted = text;
+      document.body.dataset.posted = 'true';
+      dialog.remove();
+    };
+    document.getElementById('no').addEventListener('click', answer('no'));
+    document.getElementById('yes').addEventListener('click', answer('yes'));
+  });
+"""
+
+
+class TestSendReadsTheThread:
+    """``sent`` comes from the conversation reloaded after the send: a stand-in
+    thread, whose ``served`` page is what LinkedIn answers to the load."""
+
+    @pytest.fixture(autouse=True)
+    def _fast_read(self):
+        module = "linkedin_mcp_server.scraping.message_sender"
+        with (
+            patch(f"{module}._THREAD_SETTLE_SECONDS", 0),
+            patch(f"{module}._THREAD_READ_SECONDS", 0.2),
+        ):
+            yield
+
+    async def reply(self, page, html, served, message=MULTILINE_MESSAGE) -> dict:
+        """``served(posted)`` is the page the load gets; posted: LinkedIn took it."""
+        self.loads = []
+
+        async def load(_navigator, url, **_):
+            self.loads.append((url, gate.current_tool.get()))
+            posted = await page.evaluate("document.body.dataset.posted === 'true'")
+            await page.set_content(served(posted))
+
+        await page.goto(THREAD_URL)
+        await page.set_content(html)
+        sender = _sender(page)
+        sender._own_name = "Nicolas HA"
+        with patch.object(PageNavigator, "_navigate_to_page", load):
+            # the first load is the reply's own, to the page already set
+            self.loads.append((THREAD_URL, "reply_in_thread"))
+            return await sender._send_in_composer(
+                _ProfileMessageTarget(
+                    profile_path=PROFILE_PATH,
+                    profile_urn=None,
+                    compose_url=THREAD_URL,
+                    display_name=DISPLAY_NAME,
+                ),
+                message,
+                expected_route=THREAD_URL,
+                url_is_safe=lambda url: url == THREAD_URL,
+                confirm_send=True,
+                preview=False,
+                label=THREAD_ID,
+            )
+
+    @staticmethod
+    def page_with(send_js):
+        return thread_page(send_js, participants=[PROFILE_PATH])
+
+    @staticmethod
+    def server_page(*messages, draft=""):
+        items = "".join(
+            f'<div class="msg"><span class="message-unit">{m}</span></div>'
+            for m in messages
+        )
+        return (
+            f"<!DOCTYPE html><html><body><main>{items}"
+            f'<div contenteditable="true">{draft}</div></main></body></html>'
+        )
+
+    async def test_message_in_the_thread_is_sent_without_the_observer(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, MULTILINE_MESSAGE),
+        )
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+        assert result["retry_safe"] is False
+
+    async def test_local_bubble_the_thread_does_not_hold_is_not_sent(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE),
+        )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+        assert result["retry_safe"] is False
+
+    async def test_same_text_already_in_the_thread_does_not_count(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE),
+            message=MESSAGE,
+        )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+
+    async def test_a_draft_restored_in_the_composer_is_not_sent(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, draft=MULTILINE_MESSAGE),
+        )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+
+    async def test_the_read_is_a_read_for_the_gate(self, dom_page):
+        await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, MULTILINE_MESSAGE),
+        )
+
+        assert self.loads[1:] == [(THREAD_URL, "get_conversation")]
+
+    async def test_contact_dialog_is_declined_and_the_reply_leaves(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(CONTACT_DIALOG_SEND_JS),
+            lambda posted: self.server_page(
+                MESSAGE, *([MULTILINE_MESSAGE] if posted else [])
+            ),
+        )
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+
+    async def test_contact_dialog_is_never_answered_yes(self, dom_page):
+        seen = []
+
+        html = self.page_with(CONTACT_DIALOG_SEND_JS)
+        real = dom_page.set_content
+
+        async def keep_answer(content, **kwargs):
+            seen.append(await dom_page.evaluate("document.body?.dataset.answer"))
+            await real(content, **kwargs)
+
+        with patch.object(dom_page, "set_content", keep_answer):
+            await self.reply(dom_page, html, lambda _: self.server_page(MESSAGE))
+
+        assert seen[-1] == "no"
+
+    async def test_a_read_that_fails_is_unconfirmed_and_never_sent(self, dom_page):
+        await dom_page.goto(THREAD_URL)
+        await dom_page.set_content(self.page_with(LOCAL_BUBBLE_SEND_JS))
+        sender = _sender(dom_page)
+        sender._own_name = "Nicolas HA"
+        with patch.object(
+            PageNavigator,
+            "_navigate_to_page",
+            AsyncMock(side_effect=RateLimitError("gate refused")),
+        ):
+            result = await sender._send_in_composer(
+                _ProfileMessageTarget(
+                    profile_path=PROFILE_PATH,
+                    profile_urn=None,
+                    compose_url=THREAD_URL,
+                    display_name=DISPLAY_NAME,
+                ),
+                MULTILINE_MESSAGE,
+                expected_route=THREAD_URL,
+                url_is_safe=lambda url: url == THREAD_URL,
+                confirm_send=True,
+                preview=False,
+                label=THREAD_ID,
+            )
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["sent"] is False
+        assert result["retry_safe"] is False

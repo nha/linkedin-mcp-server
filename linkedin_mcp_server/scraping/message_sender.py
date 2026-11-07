@@ -15,6 +15,7 @@ import anyio
 import anyio.lowlevel
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
     RateLimitError,
@@ -26,6 +27,7 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
+from linkedin_mcp_server.scraping.text import strip_conversation_chrome
 
 logger = logging.getLogger(__name__)
 
@@ -546,6 +548,20 @@ _MESSAGE_COMPOSER_OWNER_JS = (
         return state.owner;
     }"""
 )
+
+# What a read of the thread counts: the page's text, and the editors' to take back out
+# (a composer can hold the unsent text, and LinkedIn restores a draft on reload).
+_THREAD_TEXT_JS = r"""() => ({
+    main: document.querySelector('main')?.innerText || '',
+    editors: Array.from(
+        document.querySelectorAll('main [contenteditable="true"]')
+    ).map(editor => editor.innerText || ''),
+})"""
+# A click can start the send just before the reload: time for it to leave.
+_THREAD_SETTLE_SECONDS = 2.0
+# A reloaded conversation took up to 13 s to show its messages (trace of 2026-11-05).
+_THREAD_READ_SECONDS = 15.0
+_CONTACT_DIALOG_TIMEOUT_MS = 3000
 
 _MESSAGE_CONFIRMATION_PREPARE_JS = (
     "(arg) => {"
@@ -1708,6 +1724,62 @@ class MessageSender:
             logger.debug("Message send could not be confirmed", exc_info=True)
             return False
 
+    async def _decline_contact_dialog(self) -> bool:
+        """Answer « Share your contact info? » with no, and say if it was open.
+
+        A recruiter's InMail opens this dialog on the first reply's Send: the
+        composer empties, and the reply leaves only once the dialog is answered, so
+        a page load behind it lost the reply (2026-11-03, 2026-11-05). His contact
+        details never leave on a send: the answer is always no.
+        """
+        decline = self._page.locator("button", has_text=re.compile(r"No, don.t share"))
+        try:
+            await decline.wait_for(state="visible", timeout=_CONTACT_DIALOG_TIMEOUT_MS)
+            await decline.click()
+        except PlaywrightTimeoutError:
+            return False
+        logger.info("Declined LinkedIn's contact info dialog on a send")
+        return True
+
+    async def _count_in_thread(self, message: str) -> int:
+        """How many times the open conversation shows ``message``, composer aside."""
+        data = await self._page.evaluate(_THREAD_TEXT_JS)
+
+        def squash(text: str) -> str:
+            return re.sub(r"\s+", "", text)
+
+        wanted = squash(message)
+        # ponytail: text, not nodes: no message selector is proven on LinkedIn's
+        # page, and the send's own observer stopped matching. An editor stripped
+        # with the chrome is still taken back out: an undercount says not sent.
+        return squash(strip_conversation_chrome(data["main"])).count(wanted) - sum(
+            squash(editor).count(wanted) for editor in data["editors"]
+        )
+
+    async def _thread_shows_message(self, message: str, before: int) -> bool | None:
+        """Reload the conversation and say if the message arrived: LinkedIn's answer,
+        not the local bubble. None when the page is on no thread's route.
+
+        Counted as the read it is, not as a second write of the send. A load the
+        gate refuses raises, and the send answers ``send_unconfirmed``.
+        """
+        url = self._page.url
+        if "/messaging/thread/" not in urlparse(url).path:
+            return None
+        await asyncio.sleep(_THREAD_SETTLE_SECONDS)
+        token = gate.current_tool.set("get_conversation")
+        try:
+            await self._navigator._navigate_to_page(url)
+        finally:
+            gate.current_tool.reset(token)
+        deadline = time.monotonic() + _THREAD_READ_SECONDS
+        while True:
+            if await self._count_in_thread(message) > before:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.5)
+
     async def _dispose_message_confirmation(
         self, owner: Any, confirmation: str
     ) -> None:
@@ -2188,6 +2260,7 @@ class MessageSender:
                 recipient_selected=recipient_selected,
             )
 
+        shown_before = await self._count_in_thread(message)
         may_have_submitted = False
         try:
             owner = await self._resolve_message_owner(
@@ -2315,7 +2388,27 @@ class MessageSender:
                         owner=owner,
                         confirmation=confirmation,
                     )
-                    if not confirmed:
+                    if not confirmed and await self._decline_contact_dialog():
+                        confirmed = await self._message_send_confirmed(
+                            message,
+                            target=target,
+                            owner=owner,
+                            confirmation=confirmation,
+                        )
+                    shown = await self._thread_shows_message(message, shown_before)
+                    if shown is False:
+                        return contracts.message_action_result(
+                            self._page.url,
+                            "not_sent",
+                            "The message was submitted but the reloaded conversation "
+                            "does not show it. Read the conversation again before "
+                            "retrying.",
+                            recipient_selected=recipient_selected,
+                            retry_safe=False,
+                        )
+                    # ponytail: a send left on no thread's route cannot reload what
+                    # it sent, so it keeps the observer's answer
+                    if shown is None and not confirmed:
                         return contracts.message_action_result(
                             self._page.url,
                             "send_unconfirmed",
@@ -2330,7 +2423,7 @@ class MessageSender:
                     return contracts.message_action_result(
                         self._page.url,
                         "sent",
-                        "Message submitted and confirmed in the conversation UI.",
+                        "Message submitted and seen in the conversation.",
                         recipient_selected=recipient_selected,
                         sent=True,
                         retry_safe=False,
