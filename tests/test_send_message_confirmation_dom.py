@@ -8,6 +8,7 @@ JavaScript in headless Chromium without making a LinkedIn request or write.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Sequence
 import time
@@ -17,6 +18,8 @@ import anyio
 import pytest
 from patchright.async_api import async_playwright
 
+from linkedin_mcp_server.core import gate
+from linkedin_mcp_server.core.exceptions import RateLimitError
 from linkedin_mcp_server.scraping.message_sender import (
     MessageSender,
     _ProfileMessageTarget,
@@ -1560,3 +1563,348 @@ class TestMessageJobPosterDom:
 
         navigate.assert_not_awaited()
         assert result["status"] == "invalid_job"
+
+
+# A local bubble that keeps its id: the send's observer never confirms it, as on
+# LinkedIn since 2026-11-03.
+LOCAL_BUBBLE_SEND_JS = """
+  document.getElementById('send').addEventListener('click', event => {
+    event.preventDefault();
+    const editor = document.getElementById('composer');
+    const entry = messageItem(editor.innerText, 'local-id');
+    editor.textContent = '';
+    document.getElementById('thread').appendChild(entry);
+    document.body.dataset.clicked = 'true';
+  });
+"""
+
+# Ruby's InMail: Send empties the composer and opens the dialog; the reply leaves on
+# an answer, and a page load behind the dialog loses it.
+CONTACT_DIALOG_SEND_JS = """
+  document.getElementById('send').addEventListener('click', event => {
+    event.preventDefault();
+    const editor = document.getElementById('composer');
+    const text = editor.innerText;
+    editor.textContent = '';
+    const dialog = document.createElement('div');
+    dialog.innerHTML = '<h2>Share your contact info?</h2>'
+      + '<button id="no" type="button">No, don\\u2019t share</button>'
+      + '<button id="yes" type="button">Yes, please share</button>';
+    document.body.appendChild(dialog);
+    const answer = key => () => {
+      document.body.dataset.answer = key;
+      window.posted = text;
+      document.body.dataset.posted = 'true';
+      dialog.remove();
+    };
+    document.getElementById('no').addEventListener('click', answer('no'));
+    document.getElementById('yes').addEventListener('click', answer('yes'));
+  });
+"""
+
+
+@pytest.fixture(autouse=True)
+def _fast_thread_read():
+    module = "linkedin_mcp_server.scraping.message_sender"
+    with (
+        patch(f"{module}._THREAD_SETTLE_SECONDS", 0),
+        patch(f"{module}._THREAD_READ_SECONDS", 0.2),
+        patch(f"{module}._THREAD_STABLE_SECONDS", 0),
+        patch(f"{module}._THREAD_ROUTE_SECONDS", 0),
+    ):
+        yield
+
+
+class TestSendReadsTheThread:
+    """``sent`` comes from the conversation reloaded after the send: a stand-in
+    thread, whose ``served`` page is what LinkedIn answers to the load."""
+
+    async def reply(self, page, html, served, message=MULTILINE_MESSAGE) -> dict:
+        """``served(posted)`` is the page the load gets; posted: LinkedIn took it."""
+        self.loads: list[tuple[str, str | None]] = []
+
+        async def load(_navigator, url, **_):
+            self.loads.append((url, gate.current_tool.get()))
+            posted = await page.evaluate("document.body.dataset.posted === 'true'")
+            await page.set_content(served(posted))
+
+        await page.goto(THREAD_URL)
+        await page.set_content(html)
+        sender = _sender(page)
+        sender._own_name = "Nicolas HA"
+        with patch.object(PageNavigator, "_navigate_to_page", load):
+            # the first load is the reply's own, to the page already set
+            self.loads.append((THREAD_URL, "reply_in_thread"))
+            return await sender._send_in_composer(
+                _ProfileMessageTarget(
+                    profile_path=PROFILE_PATH,
+                    profile_urn=None,
+                    compose_url=THREAD_URL,
+                    display_name=DISPLAY_NAME,
+                ),
+                message,
+                expected_route=THREAD_URL,
+                url_is_safe=lambda url: url == THREAD_URL,
+                confirm_send=True,
+                preview=False,
+                label=THREAD_ID,
+            )
+
+    @staticmethod
+    def page_with(send_js):
+        return thread_page(send_js, participants=[PROFILE_PATH])
+
+    @staticmethod
+    def server_page(*messages, draft=""):
+        items = "".join(
+            f'<div class="msg"><span class="message-unit">{m}</span></div>'
+            for m in messages
+        )
+        return (
+            f"<!DOCTYPE html><html><body><main>{items}"
+            f'<div contenteditable="true">{draft}</div></main></body></html>'
+        )
+
+    async def test_message_in_the_thread_is_sent_without_the_observer(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, MULTILINE_MESSAGE),
+        )
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+        assert result["retry_safe"] is False
+
+    async def test_local_bubble_the_thread_does_not_hold_is_not_sent(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE),
+        )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+        assert result["retry_safe"] is False
+
+    async def test_same_text_already_in_the_thread_does_not_count(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE),
+            message=MESSAGE,
+        )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+
+    async def test_an_older_copy_still_loading_does_not_count(self, dom_page):
+        """The composer renders first: the count waits for the history behind it."""
+        late_history = """
+          const older = messageItem('LATE COPY', 'older-id');
+          setTimeout(() => document.getElementById('thread').appendChild(older), 200);
+        """
+        with patch(
+            "linkedin_mcp_server.scraping.message_sender._THREAD_STABLE_SECONDS", 0.5
+        ):
+            result = await self.reply(
+                dom_page,
+                self.page_with(LOCAL_BUBBLE_SEND_JS + late_history),
+                lambda _: self.server_page("LATE COPY"),
+                message="LATE COPY",
+            )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+
+    async def test_a_draft_restored_in_the_composer_is_not_sent(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, draft=MULTILINE_MESSAGE),
+        )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+
+    async def test_another_line_holding_the_text_does_not_count(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, "BOOK", "You: OK"),
+            message="OK",
+        )
+
+        assert result["status"] == "not_sent"
+
+    @pytest.mark.parametrize(
+        "served",
+        [
+            "<!DOCTYPE html><html><body><main></main></body></html>",
+            # the page counted one copy before the send, and shows none now
+            "<!DOCTYPE html><html><body><main><p>Other</p></main></body></html>",
+        ],
+    )
+    async def test_a_thread_that_never_renders_is_unconfirmed(self, dom_page, served):
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: served,
+            message=MESSAGE,
+        )
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["retry_safe"] is False
+
+    async def test_a_load_landing_on_another_page_is_unconfirmed(self, dom_page):
+        moved = "<script>history.pushState({}, '', '/messaging/');</script>"
+        result = await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, MULTILINE_MESSAGE) + moved,
+        )
+
+        assert result["status"] == "send_unconfirmed"
+
+    async def test_the_observer_and_the_read_disagreeing_is_unconfirmed(self, dom_page):
+        with patch.object(
+            MessageSender, "_message_send_confirmed", AsyncMock(return_value=True)
+        ):
+            result = await self.reply(
+                dom_page,
+                self.page_with(LOCAL_BUBBLE_SEND_JS),
+                lambda _: self.server_page(MESSAGE),
+            )
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["sent"] is False
+
+    async def test_two_decline_buttons_still_answer_no(self, dom_page):
+        two = CONTACT_DIALOG_SEND_JS.replace(
+            '<button id="yes"',
+            '<button type="button">No, don\\u2019t share</button><button id="yes"',
+        )
+        assert two != CONTACT_DIALOG_SEND_JS
+        result = await self.reply(
+            dom_page,
+            self.page_with(two),
+            lambda posted: self.server_page(
+                MESSAGE, *([MULTILINE_MESSAGE] if posted else [])
+            ),
+        )
+
+        assert result["status"] == "sent"
+
+    async def test_a_page_that_never_settles_stops_at_the_cap(self, dom_page):
+        await dom_page.set_content(
+            "<main id=m>x</main><script>"
+            "setInterval(() => (m.textContent += 'x'), 20)</script>"
+        )
+        module = "linkedin_mcp_server.scraping.message_sender"
+        with (
+            patch(f"{module}._THREAD_STABLE_SECONDS", 60),
+            patch(f"{module}._THREAD_STABLE_CAP_SECONDS", 0.3),
+        ):
+            count = await asyncio.wait_for(
+                _sender(dom_page)._settled_count_in_thread("absent"), 5
+            )
+
+        assert count == 0
+
+    async def test_the_read_is_a_read_for_the_gate(self, dom_page):
+        await self.reply(
+            dom_page,
+            self.page_with(LOCAL_BUBBLE_SEND_JS),
+            lambda _: self.server_page(MESSAGE, MULTILINE_MESSAGE),
+        )
+
+        assert self.loads[1:] == [(THREAD_URL, "get_conversation")]
+
+    async def test_contact_dialog_is_declined_and_the_reply_leaves(self, dom_page):
+        result = await self.reply(
+            dom_page,
+            self.page_with(CONTACT_DIALOG_SEND_JS),
+            lambda posted: self.server_page(
+                MESSAGE, *([MULTILINE_MESSAGE] if posted else [])
+            ),
+        )
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+
+    async def test_contact_dialog_is_never_answered_yes(self, dom_page):
+        seen = []
+
+        html = self.page_with(CONTACT_DIALOG_SEND_JS)
+        real = dom_page.set_content
+
+        async def keep_answer(content, **kwargs):
+            seen.append(await dom_page.evaluate("document.body?.dataset.answer"))
+            await real(content, **kwargs)
+
+        with patch.object(dom_page, "set_content", keep_answer):
+            await self.reply(dom_page, html, lambda _: self.server_page(MESSAGE))
+
+        assert seen[-1] == "no"
+
+    async def test_a_read_that_fails_is_unconfirmed_and_never_sent(self, dom_page):
+        await dom_page.goto(THREAD_URL)
+        await dom_page.set_content(self.page_with(LOCAL_BUBBLE_SEND_JS))
+        sender = _sender(dom_page)
+        sender._own_name = "Nicolas HA"
+        with patch.object(
+            PageNavigator,
+            "_navigate_to_page",
+            AsyncMock(side_effect=RateLimitError("gate refused")),
+        ):
+            result = await sender._send_in_composer(
+                _ProfileMessageTarget(
+                    profile_path=PROFILE_PATH,
+                    profile_urn=None,
+                    compose_url=THREAD_URL,
+                    display_name=DISPLAY_NAME,
+                ),
+                MULTILINE_MESSAGE,
+                expected_route=THREAD_URL,
+                url_is_safe=lambda url: url == THREAD_URL,
+                confirm_send=True,
+                preview=False,
+                label=THREAD_ID,
+            )
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["sent"] is False
+        assert result["retry_safe"] is False
+
+    async def test_a_compose_page_that_moves_to_its_thread_is_read(self, dom_page):
+        moves = """
+          document.getElementById('send').addEventListener('click', () => {
+            history.pushState({}, '', '/messaging/thread/moved/');
+          });
+        """
+        loads = []
+
+        async def load(_navigator, url, **_):
+            loads.append(url)
+            await dom_page.set_content(self.server_page(MESSAGE, "SENT TEXT"))
+
+        await dom_page.goto(COMPOSE_URL)
+        await dom_page.set_content(compose_page(FIXED_ID_BUBBLE_JS + moves))
+        with (
+            patch.object(PageNavigator, "_navigate_to_page", load),
+            patch(
+                "linkedin_mcp_server.scraping.message_sender._THREAD_ROUTE_SECONDS", 1
+            ),
+        ):
+            result = await _sender(dom_page)._send_in_composer(
+                TARGET,
+                "SENT TEXT",
+                expected_route=COMPOSE_URL,
+                url_is_safe=lambda _: True,
+                confirm_send=True,
+                preview=False,
+                label="x",
+            )
+
+        assert loads == ["https://www.linkedin.com/messaging/thread/moved/"]
+        assert result["status"] == "sent"

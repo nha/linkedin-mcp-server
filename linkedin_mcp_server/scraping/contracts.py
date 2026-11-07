@@ -76,9 +76,9 @@ def message_action_result(
 ) -> dict[str, Any]:
     """Build a structured response for the send_message tool.
 
-    ``sent`` is true only when the narrowly defined message-list UI transition
-    was observed after submission. It does not prove delivery or that the
-    recipient read the message. A caller keying a retry on it alone can re-send
+    ``sent`` is true only when the conversation, reloaded after submission, shows
+    the message (on a page with no thread route: the message-list transition was
+    observed). It does not prove the recipient read the message. A caller keying a retry on it alone can re-send
     a message that may already have arrived, which is what ``retry_safe`` exists
     to say: it is false from the moment a submission is attempted, and true only
     while nothing can have left the composer.

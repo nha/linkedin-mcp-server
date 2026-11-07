@@ -134,6 +134,11 @@ class _MessagingChromeTable:
     composer_companions: tuple[str, ...]
 
 
+# « Share your contact info? », LinkedIn's dialog on a first reply to a recruiter's
+# InMail: its visible text is the only signal, so a table (CLAUDE.md, Scraping Rules).
+# In another locale the dialog stays open and the send answers ``not_sent``.
+CONTACT_DECLINE_BUTTON = {"en": r"No, don.t share"}
+
 # How far below a composer-label candidate a companion control may sit and
 # still count as the same block. The observed block spans 6 lines; the slack
 # covers extra controls LinkedIn injects (e.g. "Press Enter to Send").

@@ -466,6 +466,10 @@ class ScriptedPage:
         self.recorder.record("evaluate", **values)
         if operation == "document_origin":
             return self.time_origin
+        if operation == "thread_text":  # a thread read shows nothing unless scripted
+            return self._take(
+                "evaluate:thread_text", default={"main": "", "editors": []}
+            )
         return self._take(f"evaluate:{operation}")
 
     async def evaluate_handle(
@@ -620,6 +624,7 @@ def semantic_program_id(program: str) -> str:
         ("inputType: 'deleteContentBackward'", "message_composer_cleanup"),
         ("pinned.button.click()", "message_submit"),
         ("__linkedinMcpConfirmationCounter", "message_confirmation_prepare"),
+        ("editors: Array.from(", "thread_text"),
         ("return candidates.length === 1", "message_confirmation_ready"),
         ("confirmations?.delete(arg.token)", "message_confirmation_dispose"),
         ("delete owner.__linkedinMcpComposer", "message_composer_dispose"),
