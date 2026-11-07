@@ -1602,18 +1602,21 @@ CONTACT_DIALOG_SEND_JS = """
 """
 
 
+@pytest.fixture(autouse=True)
+def _fast_thread_read():
+    module = "linkedin_mcp_server.scraping.message_sender"
+    with (
+        patch(f"{module}._THREAD_SETTLE_SECONDS", 0),
+        patch(f"{module}._THREAD_READ_SECONDS", 0.2),
+        patch(f"{module}._THREAD_STABLE_SECONDS", 0),
+        patch(f"{module}._THREAD_ROUTE_SECONDS", 0),
+    ):
+        yield
+
+
 class TestSendReadsTheThread:
     """``sent`` comes from the conversation reloaded after the send: a stand-in
     thread, whose ``served`` page is what LinkedIn answers to the load."""
-
-    @pytest.fixture(autouse=True)
-    def _fast_read(self):
-        module = "linkedin_mcp_server.scraping.message_sender"
-        with (
-            patch(f"{module}._THREAD_SETTLE_SECONDS", 0),
-            patch(f"{module}._THREAD_READ_SECONDS", 0.2),
-        ):
-            yield
 
     async def reply(self, page, html, served, message=MULTILINE_MESSAGE) -> dict:
         """``served(posted)`` is the page the load gets; posted: LinkedIn took it."""
@@ -1694,6 +1697,25 @@ class TestSendReadsTheThread:
         assert result["status"] == "not_sent"
         assert result["sent"] is False
 
+    async def test_an_older_copy_still_loading_does_not_count(self, dom_page):
+        """The composer renders first: the count waits for the history behind it."""
+        late_history = """
+          const older = messageItem('LATE COPY', 'older-id');
+          setTimeout(() => document.getElementById('thread').appendChild(older), 200);
+        """
+        with patch(
+            "linkedin_mcp_server.scraping.message_sender._THREAD_STABLE_SECONDS", 0.5
+        ):
+            result = await self.reply(
+                dom_page,
+                self.page_with(LOCAL_BUBBLE_SEND_JS + late_history),
+                lambda _: self.server_page("LATE COPY"),
+                message="LATE COPY",
+            )
+
+        assert result["status"] == "not_sent"
+        assert result["sent"] is False
+
     async def test_a_draft_restored_in_the_composer_is_not_sent(self, dom_page):
         result = await self.reply(
             dom_page,
@@ -1768,3 +1790,36 @@ class TestSendReadsTheThread:
         assert result["status"] == "send_unconfirmed"
         assert result["sent"] is False
         assert result["retry_safe"] is False
+
+    async def test_a_compose_page_that_moves_to_its_thread_is_read(self, dom_page):
+        moves = """
+          document.getElementById('send').addEventListener('click', () => {
+            history.pushState({}, '', '/messaging/thread/moved/');
+          });
+        """
+        loads = []
+
+        async def load(_navigator, url, **_):
+            loads.append(url)
+            await dom_page.set_content(self.server_page(MESSAGE, "SENT TEXT"))
+
+        await dom_page.goto(COMPOSE_URL)
+        await dom_page.set_content(compose_page(FIXED_ID_BUBBLE_JS + moves))
+        with (
+            patch.object(PageNavigator, "_navigate_to_page", load),
+            patch(
+                "linkedin_mcp_server.scraping.message_sender._THREAD_ROUTE_SECONDS", 1
+            ),
+        ):
+            result = await _sender(dom_page)._send_in_composer(
+                TARGET,
+                "SENT TEXT",
+                expected_route=COMPOSE_URL,
+                url_is_safe=lambda _: True,
+                confirm_send=True,
+                preview=False,
+                label="x",
+            )
+
+        assert loads == ["https://www.linkedin.com/messaging/thread/moved/"]
+        assert result["status"] == "sent"

@@ -27,7 +27,10 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
-from linkedin_mcp_server.scraping.text import strip_conversation_chrome
+from linkedin_mcp_server.scraping.text import (
+    CONTACT_DECLINE_BUTTON,
+    strip_conversation_chrome,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -560,7 +563,13 @@ _THREAD_TEXT_JS = r"""() => ({
 # A click can start the send just before the reload: time for it to leave.
 _THREAD_SETTLE_SECONDS = 2.0
 # A reloaded conversation took up to 13 s to show its messages (trace of 2026-11-05).
-_THREAD_READ_SECONDS = 15.0
+_THREAD_READ_SECONDS = 20.0
+# The count before a send: the composer renders before the messages, so it waits until
+# the page's text has held this long, within the cap.
+_THREAD_STABLE_SECONDS = 2.0
+_THREAD_STABLE_CAP_SECONDS = 6.0
+# A compose page moves to its thread's route once the message leaves.
+_THREAD_ROUTE_SECONDS = 5.0
 _CONTACT_DIALOG_TIMEOUT_MS = 3000
 
 _MESSAGE_CONFIRMATION_PREPARE_JS = (
@@ -1732,7 +1741,9 @@ class MessageSender:
         a page load behind it lost the reply (2026-11-03, 2026-11-05). His contact
         details never leave on a send: the answer is always no.
         """
-        decline = self._page.locator("button", has_text=re.compile(r"No, don.t share"))
+        decline = self._page.locator(
+            "button", has_text=re.compile(CONTACT_DECLINE_BUTTON["en"])
+        )
         try:
             await decline.wait_for(state="visible", timeout=_CONTACT_DIALOG_TIMEOUT_MS)
             await decline.click()
@@ -1743,8 +1754,10 @@ class MessageSender:
 
     async def _count_in_thread(self, message: str) -> int:
         """How many times the open conversation shows ``message``, composer aside."""
-        data = await self._page.evaluate(_THREAD_TEXT_JS)
+        return self._count_in_text(await self._page.evaluate(_THREAD_TEXT_JS), message)
 
+    @staticmethod
+    def _count_in_text(data: dict[str, Any], message: str) -> int:
         def squash(text: str) -> str:
             return re.sub(r"\s+", "", text)
 
@@ -1756,20 +1769,42 @@ class MessageSender:
             squash(editor).count(wanted) for editor in data["editors"]
         )
 
+    async def _settled_count_in_thread(self, message: str) -> int:
+        """The count before a send, once the page's text has stopped changing: an
+        older copy still loading would read as this send arriving."""
+        start = changed = time.monotonic()
+        length = -1
+        while True:
+            data = await self._page.evaluate(_THREAD_TEXT_JS)
+            now = time.monotonic()
+            if len(data["main"]) != length:
+                length, changed = len(data["main"]), now
+            elif (
+                now - changed >= _THREAD_STABLE_SECONDS
+                or now - start >= _THREAD_STABLE_CAP_SECONDS
+            ):
+                return self._count_in_text(data, message)
+            await asyncio.sleep(0.25)
+
     async def _thread_shows_message(self, message: str, before: int) -> bool | None:
         """Reload the conversation and say if the message arrived: LinkedIn's answer,
-        not the local bubble. None when the page is on no thread's route.
+        not the local bubble. None when the page reaches no thread's route.
 
         Counted as the read it is, not as a second write of the send. A load the
         gate refuses raises, and the send answers ``send_unconfirmed``.
+
+        ponytail: a compose page's count was taken with no history shown, so resending
+        a text its thread already holds reads as sent; a reply's count sees the history.
         """
-        url = self._page.url
-        if "/messaging/thread/" not in urlparse(url).path:
-            return None
+        deadline = time.monotonic() + _THREAD_ROUTE_SECONDS
+        while "/messaging/thread/" not in urlparse(self._page.url).path:
+            if time.monotonic() >= deadline:
+                return None
+            await asyncio.sleep(0.25)
         await asyncio.sleep(_THREAD_SETTLE_SECONDS)
         token = gate.current_tool.set("get_conversation")
         try:
-            await self._navigator._navigate_to_page(url)
+            await self._navigator._navigate_to_page(self._page.url)
         finally:
             gate.current_tool.reset(token)
         deadline = time.monotonic() + _THREAD_READ_SECONDS
@@ -2260,7 +2295,7 @@ class MessageSender:
                 recipient_selected=recipient_selected,
             )
 
-        shown_before = await self._count_in_thread(message)
+        shown_before = await self._settled_count_in_thread(message)
         may_have_submitted = False
         try:
             owner = await self._resolve_message_owner(
@@ -2388,13 +2423,8 @@ class MessageSender:
                         owner=owner,
                         confirmation=confirmation,
                     )
-                    if not confirmed and await self._decline_contact_dialog():
-                        confirmed = await self._message_send_confirmed(
-                            message,
-                            target=target,
-                            owner=owner,
-                            confirmation=confirmation,
-                        )
+                    if not confirmed:
+                        await self._decline_contact_dialog()
                     shown = await self._thread_shows_message(message, shown_before)
                     if shown is False:
                         return contracts.message_action_result(
