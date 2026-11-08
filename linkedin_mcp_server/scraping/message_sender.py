@@ -9,7 +9,7 @@ import os
 import re
 import time
 from typing import Any, Literal
-from urllib.parse import ParseResult, parse_qs, unquote, urljoin, urlparse
+from urllib.parse import ParseResult, parse_qs, urljoin, urlparse
 
 import anyio
 import anyio.lowlevel
@@ -279,13 +279,7 @@ _JOB_POSTER_TARGET_READY_JS = (
 )
 _JOB_POSTER_TARGET_TIMEOUT_MS = 10_000
 
-_THREAD_PARTICIPANT_READY_JS = r"""() => {
-    // The messaging page is an application shell: the thread, and with it the
-    // participant links, render a moment after the route is reached.
-    const root = document.querySelector('main') || document.body;
-    return Array.from(root.querySelectorAll('a[href*="/in/"]'))
-        .some(anchor => !anchor.closest('form'));
-}"""
+
 # 30 s, not 10: the wait ends as soon as a profile link renders, so only a slow
 # page pays it. On 2026-11-08 LinkedIn hydrated slowly (search labels missed their
 # 10 s twice) and Ruby Ryder's InMail reply read "0 profile anchors" at 10 s,
@@ -358,6 +352,12 @@ _THREAD_PARTICIPANT_JS = r"""(arg) => {
         found, source, dropped, anchors,
     };
 }"""
+
+# Ready once the page links a profile that is not the viewer's own: an early link
+# to the viewer alone ended the wait with nobody to reply to (/code-review of #11).
+_THREAD_PARTICIPANT_READY_JS = (
+    "(arg) => (" + _THREAD_PARTICIPANT_JS + ")(arg).found.length > 0"
+)
 
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
     // Text is compared after collapsing whitespace: a message with line breaks
@@ -1202,6 +1202,17 @@ _PROFILE_PATH_RE = re.compile(r"^/in/[^/?#]+/$")
 # in messageRoute match this pattern. The id identifies nobody on its own, and
 # the recipient is proven by the composer rather than this path.
 _MESSAGE_THREAD_PATH_RE = re.compile(r"^/messaging/thread/(?:[A-Za-z0-9_=-]|%3[Dd])+/$")
+_ESCAPED_PADDING_RE = re.compile(r"%3[Dd]")
+
+
+def _same_thread_route(left: str, right: str) -> bool:
+    """Two thread URLs or paths that differ only in ``=`` against ``%3D``.
+
+    Only that escape: any other one (``%2F``) still makes a different route.
+    """
+    return _ESCAPED_PADDING_RE.sub("=", left) == _ESCAPED_PADDING_RE.sub("=", right)
+
+
 _PROFILE_URN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 
@@ -1839,7 +1850,7 @@ class MessageSender:
             await self._navigator._navigate_to_page(self._page.url)
         finally:
             gate.current_tool.reset(token)
-        if urlparse(self._page.url).path != route:
+        if not _same_thread_route(urlparse(self._page.url).path, route):
             return None
         deadline = time.monotonic() + _THREAD_READ_SECONDS
         while True:
@@ -1994,11 +2005,10 @@ class MessageSender:
         await self._navigator._navigate_to_page(thread_url)
         expected_route = self._page.url
         parsed = _safe_linkedin_url(expected_route)
-        # Compared unescaped: the id is one segment either way, and LinkedIn may
-        # show its padding as ``==`` or ``%3D%3D``.
+        # LinkedIn may show the padding as ``==`` or ``%3D%3D``; nothing else.
         if (
             parsed is None
-            or unquote(parsed.path) != unquote(urlparse(thread_url).path)
+            or not _same_thread_route(parsed.path, urlparse(thread_url).path)
             or parsed.query
         ):
             return contracts.message_action_result(
@@ -2025,7 +2035,7 @@ class MessageSender:
             target,
             message,
             expected_route=expected_route,
-            url_is_safe=lambda url: url == expected_route,
+            url_is_safe=lambda url: _same_thread_route(url, expected_route),
             confirm_send=confirm_send,
             preview=preview,
             label=thread_id,
@@ -2174,6 +2184,7 @@ class MessageSender:
         try:
             await self._page.wait_for_function(
                 _THREAD_PARTICIPANT_READY_JS,
+                arg={"ownName": own_name},
                 timeout=_THREAD_PARTICIPANT_TIMEOUT_MS,
             )
         except PlaywrightTimeoutError:

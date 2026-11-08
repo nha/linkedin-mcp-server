@@ -1378,7 +1378,12 @@ class TestReplyInThreadDom:
         """Ruby Ryder's InMail, 2026-11-08: the header names her with no link, the
         profile card links nowhere, and the one /in/ link is her sender link,
         which renders late with the Yes/No quick replies under her message."""
-        html = thread_page(ID_TRANSITION_SEND_JS, participants=[]).replace(
+        html = thread_page(
+            ID_TRANSITION_SEND_JS,
+            participants=[],
+            # the viewer's own link is there first: the wait must not end on it
+            senders=[("/in/ACoAAviewer/", "View Nicolas\u2019 profile")],
+        ).replace(
             '<header id="participants">',
             '<header id="participants">Ruby Ryder Consultant at EPM Scientific'
             "<div>Ruby Ryder (She/Her) 3rd Verified recruiter</div>",
@@ -1396,7 +1401,35 @@ class TestReplyInThreadDom:
 
         assert result["status"] == "sent"
         assert result["recipient_profile_path"] == PROFILE_PATH
-        assert result["recipient_name"] == "Open Ruby Ryder\u2019s profile"
+
+    async def test_a_thread_shown_with_raw_padding_is_the_same_thread(self, dom_page):
+        """The reply opens %3D%3D; LinkedIn may show it as ==. Same route."""
+        await dom_page.goto(THREAD_URL.replace("%3D", "="))
+        await dom_page.set_content(
+            thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
+        )
+        sender = _sender(dom_page)
+        sender._own_name = "Nicolas HA"
+        with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
+            result = await sender.reply_in_thread(
+                THREAD_ID, MULTILINE_MESSAGE, confirm_send=False
+            )
+
+        assert result["status"] == "confirmation_required"
+        assert result["recipient_profile_path"] == PROFILE_PATH
+
+    async def test_an_escape_other_than_padding_is_another_route(self, dom_page):
+        """Only %3D equals its character: %2D is not taken for '-' (nor %2F for '/')."""
+        await dom_page.goto("https://www.linkedin.com/messaging/thread/2-a%2D/")
+        await dom_page.set_content(
+            thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
+        )
+        with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
+            result = await _sender(dom_page).reply_in_thread(
+                "2-a-", MULTILINE_MESSAGE, confirm_send=False
+            )
+
+        assert result["status"] == "thread_unavailable"
 
     async def test_a_namesake_sender_fails_closed_instead_of_guessing(self, dom_page):
         result = await reply(

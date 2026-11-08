@@ -129,11 +129,13 @@
       "section": "message"
     },
     {
-      "arg": null,
+      "arg": {
+        "ownName": "Policy Viewer"
+      },
       "call": "reply_in_thread",
       "kind": "wait_for_function",
       "operation": "thread_participant_ready",
-      "program_digest": "b695b8949e78",
+      "program_digest": "b29ccdfdee68",
       "section": "message",
       "timeout_ms": 30000
     },
