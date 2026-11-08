@@ -437,6 +437,7 @@ class ScriptedPage:
         expression: str,
         *,
         arg: Any = None,
+        polling: Any = None,
         timeout: int | None = None,
     ) -> None:
         operation = semantic_program_id(expression)

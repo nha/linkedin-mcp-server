@@ -142,7 +142,7 @@ def message_thread_url(thread_id: str) -> str:
     A thread id ends in base64 padding (``==``), escaped here as get_conversation
     escapes it. Two builders let the reply open ``==`` raw while the read opened
     ``%3D%3D``, so a reply failure could not be checked against a read of the
-    same page (2026-11-08, Ruby Ryder's InMail).
+    same page (2026-11-08, a recruiter's InMail).
     """
     return messaging_thread_url(thread_id, "/")
 

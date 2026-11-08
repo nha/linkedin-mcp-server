@@ -280,11 +280,11 @@ _JOB_POSTER_TARGET_READY_JS = (
 _JOB_POSTER_TARGET_TIMEOUT_MS = 10_000
 
 
-# 30 s, not 10: the wait ends as soon as a profile link renders, so only a slow
-# page pays it. On 2026-11-08 LinkedIn hydrated slowly (search labels missed their
-# 10 s twice) and Ruby Ryder's InMail reply read "0 profile anchors" at 10 s,
-# while get_conversation, which waits and scrolls longer, found her sender link.
+# A ceiling, not a delay: the wait ends on the first participant link, so only a
+# slowly hydrating page pays it. 10 s cut off an InMail whose sender link came late.
 _THREAD_PARTICIPANT_TIMEOUT_MS = 30_000
+# The ready check runs the whole participant scan: poll it, not on every frame.
+_THREAD_PARTICIPANT_POLL_MS = 250
 
 _THREAD_PARTICIPANT_JS = r"""(arg) => {
     // Who the open conversation is with. Two sources, in order:
@@ -2017,6 +2017,14 @@ class MessageSender:
                 "LinkedIn did not open the requested conversation.",
             )
 
+        if not own_name:
+            # Without it the viewer's own sender link passes as the participant.
+            return contracts.message_action_result(
+                expected_route,
+                "recipient_resolution_failed",
+                "The viewer's own name could not be read, so their sender links "
+                "cannot be told from the participant's.",
+            )
         participant, detail = await self._read_thread_participant(own_name)
         if participant is None:
             return contracts.message_action_result(
@@ -2035,7 +2043,9 @@ class MessageSender:
             target,
             message,
             expected_route=expected_route,
-            url_is_safe=lambda url: _same_thread_route(url, expected_route),
+            # Exact, as the composer's own route checks are: a route that changes
+            # after the pin fails closed with this reason, not a generic one.
+            url_is_safe=lambda url: url == expected_route,
             confirm_send=confirm_send,
             preview=preview,
             label=thread_id,
@@ -2185,6 +2195,7 @@ class MessageSender:
             await self._page.wait_for_function(
                 _THREAD_PARTICIPANT_READY_JS,
                 arg={"ownName": own_name},
+                polling=_THREAD_PARTICIPANT_POLL_MS,
                 timeout=_THREAD_PARTICIPANT_TIMEOUT_MS,
             )
         except PlaywrightTimeoutError:

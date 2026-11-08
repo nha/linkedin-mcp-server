@@ -1375,9 +1375,9 @@ class TestReplyInThreadDom:
     async def test_unanswered_inmail_with_only_yes_no_buttons_resolves_its_sender(
         self, dom_page
     ):
-        """Ruby Ryder's InMail, 2026-11-08: the header names her with no link, the
-        profile card links nowhere, and the one /in/ link is her sender link,
-        which renders late with the Yes/No quick replies under her message."""
+        """A recruiter's InMail, 2026-11-08: the header names the sender with no
+        link, the profile card links nowhere, and the one /in/ link is the sender
+        link, which renders late with the Yes/No quick replies under the message."""
         html = thread_page(
             ID_TRANSITION_SEND_JS,
             participants=[],
@@ -1385,14 +1385,14 @@ class TestReplyInThreadDom:
             senders=[("/in/ACoAAviewer/", "View Nicolas\u2019 profile")],
         ).replace(
             '<header id="participants">',
-            '<header id="participants">Ruby Ryder Consultant at EPM Scientific'
-            "<div>Ruby Ryder (She/Her) 3rd Verified recruiter</div>",
+            '<header id="participants">Alex Doe Consultant at Example Corp'
+            "<div>Alex Doe 3rd Verified recruiter</div>",
         )
         late = f"""<script>setTimeout(() => {{
           document.getElementById('thread').insertAdjacentHTML('afterbegin',
             '<div data-view-name="message-list-item" data-event-urn="inmail">'
             + '<a href="https://www.linkedin.com{PROFILE_PATH}">'
-            + 'Open Ruby Ryder\u2019s profile</a>'
+            + 'Open Alex Doe\u2019s profile</a>'
             + '<span class="message-unit">Hi Nicolas</span>'
             + '<button>Yes, interested...</button>'
             + '<button>No thanks...</button></div>');
@@ -1430,6 +1430,30 @@ class TestReplyInThreadDom:
             )
 
         assert result["status"] == "thread_unavailable"
+
+    def test_only_escaped_padding_widens_the_thread_route(self):
+        """'%3D' is admitted, never '%2F': and both JS messageRoute copies agree."""
+        from linkedin_mcp_server.scraping import message_sender as ms
+
+        assert ms._MESSAGE_THREAD_PATH_RE.fullmatch("/messaging/thread/2-a%3D%3D/")
+        assert not ms._MESSAGE_THREAD_PATH_RE.fullmatch("/messaging/thread/2-a%2F/")
+        js = r"/^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/"
+        assert js in ms._MESSAGE_COMPOSER_INSPECT_JS
+        assert js in ms._MESSAGE_COMPOSER_PINNED_JS
+
+    async def test_an_unknown_own_name_fails_closed(self, dom_page):
+        """With no name the viewer's own sender link would pass as the participant."""
+        result = await reply(
+            dom_page,
+            thread_page(
+                ID_TRANSITION_SEND_JS,
+                participants=[],
+                senders=[("/in/ACoAAviewer/", "View Nicolas’ profile")],
+            ),
+            own_name="",
+        )
+
+        assert result["status"] == "recipient_resolution_failed"
 
     async def test_a_namesake_sender_fails_closed_instead_of_guessing(self, dom_page):
         result = await reply(
@@ -1639,7 +1663,7 @@ LOCAL_BUBBLE_SEND_JS = """
   });
 """
 
-# Ruby's InMail: Send empties the composer and opens the dialog; the reply leaves on
+# A recruiter's InMail: Send empties the composer and opens the dialog; the reply leaves on
 # an answer, and a page load behind the dialog loses it.
 CONTACT_DIALOG_SEND_JS = """
   document.getElementById('send').addEventListener('click', event => {

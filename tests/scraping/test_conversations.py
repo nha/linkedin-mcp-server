@@ -630,7 +630,7 @@ class TestGetConversation:
     async def test_reply_opens_the_url_get_conversation_opens(self, mock_page):
         """One URL for one thread: ``==`` escaped, as get_conversation opens it.
 
-        On 2026-11-08 the reply opened Ruby Ryder's thread with ``==`` raw and
+        On 2026-11-08 the reply opened a recruiter's InMail with ``==`` raw and
         the read opened ``%3D%3D``, so the read could not vouch for the page
         the reply saw.
         """
@@ -663,13 +663,14 @@ class TestGetConversation:
             patch.object(PageNavigator, "_navigate_to_page", reply_nav),
             pytest.raises(Opened),
         ):
-            await sender.reply_in_thread(thread_id, "Hi Ruby", confirm_send=True)
+            await sender.reply_in_thread(thread_id, "Hi", confirm_send=True)
 
         escaped = (
             "https://www.linkedin.com/messaging/thread/"
             "2-ZjFiNDc3OWYtNWM2MS00YTc5LWEwOTctZmVlZDJjOTgxZDNiXzEwMA%3D%3D/"
         )
-        assert reply_nav.await_args.args == read_nav.await_args.args == (escaped,)
+        read_nav.assert_awaited_once_with(escaped)
+        reply_nav.assert_awaited_once_with(escaped)
 
     async def test_returns_conversation_by_thread_id(self, mock_page):
         reader = _reader(mock_page)
