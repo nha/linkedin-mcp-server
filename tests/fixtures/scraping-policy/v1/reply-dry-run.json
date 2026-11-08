@@ -66,6 +66,15 @@
       "section": "message"
     },
     {
+      "arg": null,
+      "call": "reply_in_thread",
+      "kind": "wait_for_function",
+      "operation": "profile_display_name",
+      "program_digest": "9437935375a3",
+      "section": "message",
+      "timeout_ms": 5000
+    },
+    {
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "profile_display_name",

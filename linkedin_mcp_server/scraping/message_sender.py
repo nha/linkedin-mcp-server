@@ -2189,10 +2189,10 @@ class MessageSender:
                 )
                 try:
                     # The heading renders after load; wait for it, not a snapshot.
-                    handle = await self._page.wait_for_function(
+                    await self._page.wait_for_function(
                         _OWN_NAME_HEADING_JS, timeout=_OWN_NAME_WAIT_MS
                     )
-                    name = await handle.json_value()
+                    name = await self._page.evaluate(_OWN_NAME_HEADING_JS)
                 except PlaywrightTimeoutError:
                     name = await self._page.evaluate(_OWN_NAME_TITLE_JS)
                 if not name:
