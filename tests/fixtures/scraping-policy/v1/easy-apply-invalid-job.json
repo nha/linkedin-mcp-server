@@ -1,0 +1,20 @@
+{
+  "call": {
+    "arguments": {
+      "confirm_submit": true,
+      "job_id": "not-a-job"
+    },
+    "method": "easy_apply"
+  },
+  "events": [],
+  "result": {
+    "message": "job_id must be a numeric LinkedIn job ID.",
+    "recipient_selected": false,
+    "retry_safe": true,
+    "sent": false,
+    "status": "invalid_job",
+    "url": "https://www.linkedin.com/jobs/"
+  },
+  "scenario": "easy_apply__invalid_job",
+  "schema_version": 1
+}

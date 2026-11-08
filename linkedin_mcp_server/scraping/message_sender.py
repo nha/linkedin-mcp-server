@@ -15,6 +15,7 @@ import anyio
 import anyio.lowlevel
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
     RateLimitError,
@@ -26,6 +27,10 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
+from linkedin_mcp_server.scraping.text import (
+    CONTACT_DECLINE_BUTTON,
+    strip_conversation_chrome,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,11 +182,29 @@ _ATTACHMENT_CHIPS_JS = """
 }
 """
 
-_OWN_NAME_JS = r"""() => {
+# The viewer's name on their own profile: the heading, waited for first.
+_OWN_NAME_HEADING_JS = r"""() => {
     const heading = document.querySelector('main h1');
     return ((heading && (heading.innerText || heading.textContent)) || '')
         .replace(/\s+/g, ' ').trim();
 }"""
+# Read only once the heading never showed (on 2026-11-08 /in/me/ showed none and
+# every reply failed closed): the title LinkedIn serves with a profile,
+# "(3) Name | LinkedIn", on a /in/ page. Text is the signal here, so the format
+# is assumed: any other (a headline, another segment, another brand order)
+# returns "", which the caller refuses.
+_OWN_NAME_TITLE_JS = r"""() => {
+    if (!/^\/in\/[^/]+\/?$/.test(location.pathname)) return '';
+    const title = (document.title || '').replace(/\s+/g, ' ').trim()
+        .match(/^(?:\(\d+\+?\) )?([^|]+?) \| LinkedIn$/);
+    // A name is letters, apostrophes, dots, hyphens and spaces: a headline
+    // after a dash, a middle dot, a comma or a colon is refused.
+    const name = title ? title[1] : '';
+    return /^[\p{L}\p{M}][\p{L}\p{M}'\u2019. -]*$/u.test(name)
+        && !/ - /.test(name) ? name : '';
+}"""
+# How long the profile may take to show its heading before the title is read.
+_OWN_NAME_WAIT_MS = 5000
 
 _JOB_POSTER_TARGET_JS = r"""() => {
     // The hiring-team card on a job page: one compose link whose recipient
@@ -274,14 +297,12 @@ _JOB_POSTER_TARGET_READY_JS = (
 )
 _JOB_POSTER_TARGET_TIMEOUT_MS = 10_000
 
-_THREAD_PARTICIPANT_READY_JS = r"""() => {
-    // The messaging page is an application shell: the thread, and with it the
-    // participant links, render a moment after the route is reached.
-    const root = document.querySelector('main') || document.body;
-    return Array.from(root.querySelectorAll('a[href*="/in/"]'))
-        .some(anchor => !anchor.closest('form'));
-}"""
-_THREAD_PARTICIPANT_TIMEOUT_MS = 10_000
+
+# A ceiling, not a delay: the wait ends on the first participant link, so only a
+# slowly hydrating page pays it. 10 s cut off an InMail whose sender link came late.
+_THREAD_PARTICIPANT_TIMEOUT_MS = 30_000
+# The ready check runs the whole participant scan: poll it, not on every frame.
+_THREAD_PARTICIPANT_POLL_MS = 250
 
 _THREAD_PARTICIPANT_JS = r"""(arg) => {
     // Who the open conversation is with. Two sources, in order:
@@ -350,6 +371,12 @@ _THREAD_PARTICIPANT_JS = r"""(arg) => {
     };
 }"""
 
+# Ready once the page links a profile that is not the viewer's own: an early link
+# to the viewer alone ended the wait with nobody to reply to (/code-review of #11).
+_THREAD_PARTICIPANT_READY_JS = (
+    "(arg) => (" + _THREAD_PARTICIPANT_JS + ")(arg).found.length > 0"
+)
+
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
     // Text is compared after collapsing whitespace: a message with line breaks
     // renders as separate blocks in the editor and in the sent bubble, so the
@@ -408,7 +435,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
                 url.hash ||
                 !(
                     url.pathname === '/messaging/compose/' ||
-                    /^\/messaging\/thread\/[A-Za-z0-9_=-]+\/$/.test(url.pathname)
+                    /^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/.test(url.pathname)
                 )
             ) {
                 return null;
@@ -546,6 +573,28 @@ _MESSAGE_COMPOSER_OWNER_JS = (
         return state.owner;
     }"""
 )
+
+# What a read of the thread counts: the page's text, and the editors' to take back out
+# (a composer can hold the unsent text, and LinkedIn restores a draft on reload).
+_THREAD_TEXT_JS = r"""() => ({
+    main: document.querySelector('main')?.innerText || '',
+    editors: Array.from(
+        document.querySelectorAll('main [contenteditable="true"]')
+    ).map(editor => editor.innerText || ''),
+})"""
+# A click or the dialog's answer can start the send just before the reload, and a load
+# behind it loses it: time for it to leave.
+_THREAD_SETTLE_SECONDS = 5.0
+# A reloaded conversation took up to 13 s to show its messages (trace of 2026-11-05).
+_THREAD_READ_SECONDS = 20.0
+# The count before a send: the composer renders before the messages, so it waits until
+# the page's text has held this long, within the cap.
+# ponytail: a history later than this undercounts, and only a repeated text feels it.
+_THREAD_STABLE_SECONDS = 3.0
+_THREAD_STABLE_CAP_SECONDS = 15.0
+# A compose page moves to its thread's route once the message leaves.
+_THREAD_ROUTE_SECONDS = 5.0
+_CONTACT_DIALOG_TIMEOUT_MS = 3000
 
 _MESSAGE_CONFIRMATION_PREPARE_JS = (
     "(arg) => {"
@@ -908,7 +957,7 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
                 url.hash ||
                 !(
                     url.pathname === '/messaging/compose/' ||
-                    /^\/messaging\/thread\/[A-Za-z0-9_=-]+\/$/.test(url.pathname)
+                    /^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/.test(url.pathname)
                 )
             ) {
                 return null;
@@ -1165,10 +1214,23 @@ _PROFILE_PATH_RE = re.compile(r"^/in/[^/?#]+/$")
 # A thread id is base64url and keeps its padding literally. Measured live:
 # /messaging/thread/2-ZDBkMjZiY2Ut...XzEwMA==/ is what LinkedIn redirects an
 # existing conversation to, and rejecting it stopped every send to a member
-# the account had already written to. Only '=' is added: '%' would readmit an
-# encoded slash and let one path pose as another. The id identifies nobody on
-# its own, and the recipient is proven by the composer rather than this path.
-_MESSAGE_THREAD_PATH_RE = re.compile(r"^/messaging/thread/[A-Za-z0-9_=-]+/$")
+# the account had already written to. Only '=' is added, raw or escaped as
+# '%3D' (how a reply opens it, as get_conversation does): any other '%' would
+# readmit an encoded slash and let one path pose as another. The two JS copies
+# in messageRoute match this pattern. The id identifies nobody on its own, and
+# the recipient is proven by the composer rather than this path.
+_MESSAGE_THREAD_PATH_RE = re.compile(r"^/messaging/thread/(?:[A-Za-z0-9_=-]|%3[Dd])+/$")
+_ESCAPED_PADDING_RE = re.compile(r"%3[Dd]")
+
+
+def _same_thread_route(left: str, right: str) -> bool:
+    """Two thread URLs or paths that differ only in ``=`` against ``%3D``.
+
+    Only that escape: any other one (``%2F``) still makes a different route.
+    """
+    return _ESCAPED_PADDING_RE.sub("=", left) == _ESCAPED_PADDING_RE.sub("=", right)
+
+
 _PROFILE_URN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 
@@ -1708,6 +1770,116 @@ class MessageSender:
             logger.debug("Message send could not be confirmed", exc_info=True)
             return False
 
+    async def _decline_contact_dialog(self) -> None:
+        """Answer « Share your contact info? » with no, when it is open.
+
+        A recruiter's InMail opens this dialog on the first reply's Send: the
+        composer empties, and the reply leaves only once the dialog is answered, so
+        a page load behind it lost the reply (2026-11-03, 2026-11-05). His contact
+        details never leave on a send: the answer is always no.
+        """
+        decline = (
+            self._page.locator("button")
+            .filter(has_text=re.compile(CONTACT_DECLINE_BUTTON["en"]))
+            .first
+        )
+        try:
+            await decline.wait_for(state="visible", timeout=_CONTACT_DIALOG_TIMEOUT_MS)
+            await decline.click()
+            await decline.wait_for(state="hidden", timeout=_CONTACT_DIALOG_TIMEOUT_MS)
+        except Exception:
+            # No dialog, the usual case. One that stayed open reads as not sent.
+            logger.debug("No contact info dialog answered", exc_info=True)
+            return
+        logger.info("Declined LinkedIn's contact info dialog on a send")
+
+    @staticmethod
+    def _count_in_text(data: dict[str, Any], message: str) -> int:
+        """How many times the page shows ``message`` as whole lines, composer aside.
+
+        Whole lines: "OK" is not in "BOOK", nor a message in a sidebar's "You: ..."
+        preview. Whitespace aside, as the page can wrap or collapse a message's lines.
+        """
+
+        def squashed_lines(text: str) -> list[str]:
+            lines = (re.sub(r"\s+", "", line) for line in text.splitlines())
+            return [line for line in lines if line]
+
+        wanted = re.sub(r"\s+", "", message)
+
+        def count(text: str) -> int:
+            lines, found = squashed_lines(text), 0
+            for start in range(len(lines)):
+                run = ""
+                for line in lines[start:]:
+                    run += line
+                    if not wanted.startswith(run):
+                        break
+                    if run == wanted:
+                        found += 1
+                        break
+            return found
+
+        # ponytail: text, not nodes: no message selector is proven on LinkedIn's
+        # page, and the send's own observer stopped matching. An editor stripped
+        # with the chrome is still taken back out: an undercount says not sent.
+        return count(strip_conversation_chrome(data["main"])) - sum(
+            count(editor) for editor in data["editors"]
+        )
+
+    async def _settled_count_in_thread(self, message: str) -> int:
+        """The count before a send, once the page's text has stopped changing: an
+        older copy still loading would read as this send arriving."""
+        start = changed = time.monotonic()
+        length = -1
+        while True:
+            data = await self._page.evaluate(_THREAD_TEXT_JS)
+            now = time.monotonic()
+            if len(data["main"]) != length:
+                length, changed = len(data["main"]), now
+            if (
+                now - changed >= _THREAD_STABLE_SECONDS
+                or now - start >= _THREAD_STABLE_CAP_SECONDS
+            ):
+                return self._count_in_text(data, message)
+            await asyncio.sleep(0.25)
+
+    async def _thread_shows_message(self, message: str, before: int) -> bool | None:
+        """Reload the conversation and say if the message arrived: LinkedIn's answer,
+        not the local bubble. None when the read proves nothing: the page reaches no
+        thread's route, lands on another page, or never shows the history counted before.
+
+        Counted as the read it is, not as a second write of the send. A load the
+        gate refuses raises, and the send answers ``send_unconfirmed``.
+
+        ponytail: a compose page's count was taken with no history shown, so a text its
+        thread already holds counts as arrived. A compose page reaches a thread's route
+        only once the message left, so that says little more than the route did.
+        """
+        deadline = time.monotonic() + _THREAD_ROUTE_SECONDS
+        while not _MESSAGE_THREAD_PATH_RE.fullmatch(urlparse(self._page.url).path):
+            if time.monotonic() >= deadline:
+                return None
+            await asyncio.sleep(0.25)
+        await asyncio.sleep(_THREAD_SETTLE_SECONDS)
+        route = urlparse(self._page.url).path
+        token = gate.current_tool.set("get_conversation")
+        try:
+            await self._navigator._navigate_to_page(self._page.url)
+        finally:
+            gate.current_tool.reset(token)
+        if not _same_thread_route(urlparse(self._page.url).path, route):
+            return None
+        deadline = time.monotonic() + _THREAD_READ_SECONDS
+        while True:
+            data = await self._page.evaluate(_THREAD_TEXT_JS)
+            count = self._count_in_text(data, message)
+            if count > before:
+                return True
+            if time.monotonic() >= deadline:
+                return None if count < before or not data["main"].strip() else False
+            await asyncio.sleep(0.5)
+
     async def _dispose_message_confirmation(
         self, owner: Any, confirmation: str
     ) -> None:
@@ -1848,10 +2020,24 @@ class MessageSender:
             )
 
         own_name = await self._read_own_name()
+        if not own_name:
+            # Without it the viewer's own sender link passes as the participant;
+            # refused before the thread load, which would spend a gated page.
+            return contracts.message_action_result(
+                thread_url,
+                "recipient_resolution_failed",
+                "The viewer's own name could not be read, so their sender links "
+                "cannot be told from the participant's.",
+            )
         await self._navigator._navigate_to_page(thread_url)
         expected_route = self._page.url
         parsed = _safe_linkedin_url(expected_route)
-        if parsed is None or parsed.path != urlparse(thread_url).path or parsed.query:
+        # LinkedIn may show the padding as ``==`` or ``%3D%3D``; nothing else.
+        if (
+            parsed is None
+            or not _same_thread_route(parsed.path, urlparse(thread_url).path)
+            or parsed.query
+        ):
             return contracts.message_action_result(
                 expected_route,
                 "thread_unavailable",
@@ -1876,6 +2062,8 @@ class MessageSender:
             target,
             message,
             expected_route=expected_route,
+            # Exact, as the composer's own route checks are: a route that changes
+            # after the pin fails closed with this reason, not a generic one.
             url_is_safe=lambda url: url == expected_route,
             confirm_send=confirm_send,
             preview=preview,
@@ -1996,23 +2184,46 @@ class MessageSender:
 
         Sender links in a conversation carry the viewer's name, and the name is
         the one locale-independent way to tell those links from the other
-        participant's. Unknown (no heading) resolves to "", which drops nothing.
+        participant's. Unknown resolves to "", which the caller refuses. Only a
+        name from the heading is kept; the next reply reads the profile again.
         """
-        if self._own_name is None:
+        if self._own_name:
+            return self._own_name
+        name: object = ""
+        try:
+            await self._navigator._navigate_to_page("https://www.linkedin.com/in/me/")
             try:
-                await self._navigator._navigate_to_page(
-                    "https://www.linkedin.com/in/me/"
+                # The heading renders after load; wait for it, not a snapshot.
+                await self._page.wait_for_function(
+                    _OWN_NAME_HEADING_JS, timeout=_OWN_NAME_WAIT_MS
                 )
-                name = await self._page.evaluate(_OWN_NAME_JS)
-            except RateLimitError:
-                # A gate refusal or a limit stops the reply, never an unknown
-                # name that weakens the participant check (/code-review of #8).
-                raise
-            except Exception:
-                logger.debug("Could not resolve the viewer's own name", exc_info=True)
-                name = ""
-            self._own_name = name if isinstance(name, str) else ""
-        return self._own_name
+                name = await self._page.evaluate(_OWN_NAME_HEADING_JS)
+            except PlaywrightTimeoutError:
+                pass
+            if isinstance(name, str) and name:
+                # Only the heading is kept: a title read is tried again next
+                # reply, so the heading wins once it renders.
+                self._own_name = name
+                return name
+            name = await self._page.evaluate(_OWN_NAME_TITLE_JS)
+            logger.info(
+                "The viewer's name came from the profile title at %s"
+                if isinstance(name, str) and name
+                else "No heading or profile title names the viewer at %s",
+                self._page.url,
+            )
+        except RateLimitError:
+            # A gate refusal or a limit stops the reply, never an unknown
+            # name that weakens the participant check (/code-review of #8).
+            raise
+        except Exception:
+            logger.warning(
+                "Could not read the viewer's own name at %s",
+                self._page.url,
+                exc_info=True,
+            )
+            name = ""
+        return name if isinstance(name, str) else ""
 
     async def _read_thread_participant(
         self, own_name: str
@@ -2025,6 +2236,8 @@ class MessageSender:
         try:
             await self._page.wait_for_function(
                 _THREAD_PARTICIPANT_READY_JS,
+                arg={"ownName": own_name},
+                polling=_THREAD_PARTICIPANT_POLL_MS,
                 timeout=_THREAD_PARTICIPANT_TIMEOUT_MS,
             )
         except PlaywrightTimeoutError:
@@ -2188,6 +2401,7 @@ class MessageSender:
                 recipient_selected=recipient_selected,
             )
 
+        shown_before = await self._settled_count_in_thread(message)
         may_have_submitted = False
         try:
             owner = await self._resolve_message_owner(
@@ -2316,13 +2530,27 @@ class MessageSender:
                         confirmation=confirmation,
                     )
                     if not confirmed:
+                        await self._decline_contact_dialog()
+                    shown = await self._thread_shows_message(message, shown_before)
+                    if shown is False and not confirmed:
+                        return contracts.message_action_result(
+                            self._page.url,
+                            "not_sent",
+                            "The message was submitted but the reloaded conversation "
+                            "does not show it. Read the conversation again before "
+                            "retrying.",
+                            recipient_selected=recipient_selected,
+                            retry_safe=False,
+                        )
+                    # ponytail: a read that proves nothing keeps the observer's answer;
+                    # the two disagreeing is an unknown, never a sent
+                    if shown is not True and (shown is False or not confirmed):
                         return contracts.message_action_result(
                             self._page.url,
                             "send_unconfirmed",
                             "The message was submitted but LinkedIn did not confirm "
-                            "the message-list transition in time. Check the "
-                            "conversation before retrying; retrying may deliver the "
-                            "message twice.",
+                            "it in time. Check the conversation before retrying; "
+                            "retrying may deliver the message twice.",
                             recipient_selected=recipient_selected,
                             retry_safe=False,
                         )
@@ -2330,7 +2558,7 @@ class MessageSender:
                     return contracts.message_action_result(
                         self._page.url,
                         "sent",
-                        "Message submitted and confirmed in the conversation UI.",
+                        "Message submitted and seen in the conversation.",
                         recipient_selected=recipient_selected,
                         sent=True,
                         retry_safe=False,

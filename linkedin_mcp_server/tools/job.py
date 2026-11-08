@@ -207,3 +207,73 @@ def register_job_tools(
                 raise_tool_error(relogin_exc, "get_saved_jobs")
         except Exception as e:
             raise_tool_error(e, "get_saved_jobs")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Easy Apply",
+        annotations={"destructiveHint": True, "openWorldHint": True},
+        tags={"job", "actions"},
+        exclude_args=["extractor"],
+    )
+    async def easy_apply(
+        job_id: str,
+        message: str,
+        confirm_submit: bool,
+        ctx: Context,
+        cv_path: str | None = None,
+        screenshot_path: str | None = None,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Apply to a job through LinkedIn's Easy Apply form.
+
+        The CV goes into the form's file input, the message into its first
+        empty text area; every other field keeps what LinkedIn prefilled. A
+        step with a required field still empty stops before anything is
+        submitted and returns the field labels (status ``needs_answers``).
+        This is a write operation when confirm_submit is True.
+
+        Args:
+            job_id: LinkedIn job ID (e.g., "4469816503")
+            message: Text for the form's free field (cover letter, additional
+                information); line breaks are kept.
+            confirm_submit: Must be True to submit; False walks to the submit
+                step, reports it (status ``ready``) and submits nothing.
+            ctx: FastMCP context for progress reporting
+            cv_path: Absolute path of the CV file to upload.
+            screenshot_path: Where to save a screenshot of the last screen,
+                the proof of a submission.
+
+        Returns:
+            Dict with url, status, message, sent, retry_safe, cv_uploaded,
+            message_typed, and confirmation, screenshot or fields when known.
+        """
+        try:
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="easy_apply"
+            )
+            logger.info(
+                "Easy Apply to job %s (confirm_submit=%s)", job_id, confirm_submit
+            )
+
+            await ctx.report_progress(progress=0, total=100, message="Applying")
+
+            result = await extractor.easy_apply(
+                job_id,
+                message,
+                cv_path=cv_path,
+                confirm_submit=confirm_submit,
+                screenshot_path=screenshot_path,
+            )
+
+            await ctx.report_progress(progress=100, total=100, message="Complete")
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "easy_apply")
+        except Exception as e:
+            raise_tool_error(e, "easy_apply")  # NoReturn

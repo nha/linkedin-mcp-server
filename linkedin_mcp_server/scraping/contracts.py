@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from linkedin_mcp_server.scraping.identifiers import (
+    messaging_thread_url,
     normalize_person_identifier,
     person_profile_url,
 )
@@ -76,9 +77,9 @@ def message_action_result(
 ) -> dict[str, Any]:
     """Build a structured response for the send_message tool.
 
-    ``sent`` is true only when the narrowly defined message-list UI transition
-    was observed after submission. It does not prove delivery or that the
-    recipient read the message. A caller keying a retry on it alone can re-send
+    ``sent`` is true only when the conversation, reloaded after submission, shows
+    the message (on a page with no thread route: the message-list transition was
+    observed). It does not prove the recipient read the message. A caller keying a retry on it alone can re-send
     a message that may already have arrived, which is what ``retry_safe`` exists
     to say: it is false from the moment a submission is attempted, and true only
     while nothing can have left the composer.
@@ -136,7 +137,14 @@ def refuse_an_invalid_message(
 
 
 def message_thread_url(thread_id: str) -> str:
-    return f"https://www.linkedin.com/messaging/thread/{thread_id}/"
+    """The one thread URL: the reply opens what get_conversation opens.
+
+    A thread id ends in base64 padding (``==``), escaped here as get_conversation
+    escapes it. Two builders let the reply open ``==`` raw while the read opened
+    ``%3D%3D``, so a reply failure could not be checked against a read of the
+    same page (2026-11-08, a recruiter's InMail).
+    """
+    return messaging_thread_url(thread_id, "/")
 
 
 def refuse_an_invalid_thread_reply(

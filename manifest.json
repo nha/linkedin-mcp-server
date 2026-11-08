@@ -124,6 +124,10 @@
       "description": "Message the poster of a job through the listing's hiring-team card, the free route to a poster who is not a connection; the card's recipient-specific compose link is the boundary and the compose route is pinned, the poster's profile is returned as recipient_profile_path for cross-checking and a job with no card or more than one poster fails closed; line breaks are typed as paragraph breaks, preview=true with confirm_send=false reports the editor text without sending"
     },
     {
+      "name": "easy_apply",
+      "description": "Apply to a job through LinkedIn's Easy Apply form: the CV goes into the form's file input, the message into its first empty text area, the rest is what LinkedIn prefilled; a required field left empty stops before submit and returns its labels, confirm_submit=false walks to the submit step without submitting, and a screenshot of the last screen is saved to screenshot_path"
+    },
+    {
       "name": "get_feed",
       "description": "Get recent posts from the authenticated user's LinkedIn home feed"
     },

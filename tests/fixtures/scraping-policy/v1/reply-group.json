@@ -64,6 +64,15 @@
       "section": "message"
     },
     {
+      "arg": null,
+      "call": "reply_in_thread",
+      "kind": "wait_for_function",
+      "operation": "profile_display_name",
+      "program_digest": "9437935375a3",
+      "section": "message",
+      "timeout_ms": 5000
+    },
+    {
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "profile_display_name",
@@ -80,7 +89,7 @@
     {
       "call": "reply_in_thread",
       "extra": {
-        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -91,14 +100,14 @@
       "call": "reply_in_thread",
       "kind": "navigate",
       "landed_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
-      "requested_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "requested_url": "https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
       "section": "message",
       "timeout_ms": 30000,
       "wait_until": "domcontentloaded"
     },
     {
       "call": "reply_in_thread",
-      "description": "goto https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "description": "goto https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
       "kind": "boundary.stabilize",
       "result": null,
       "section": "message"
@@ -106,7 +115,7 @@
     {
       "call": "reply_in_thread",
       "extra": {
-        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -127,13 +136,15 @@
       "section": "message"
     },
     {
-      "arg": null,
+      "arg": {
+        "ownName": "Policy Viewer"
+      },
       "call": "reply_in_thread",
       "kind": "wait_for_function",
       "operation": "thread_participant_ready",
-      "program_digest": "b695b8949e78",
+      "program_digest": "b29ccdfdee68",
       "section": "message",
-      "timeout_ms": 10000
+      "timeout_ms": 30000
     },
     {
       "arg": {

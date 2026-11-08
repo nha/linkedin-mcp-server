@@ -12,6 +12,7 @@ from unittest.mock import patch
 import asyncio
 import inspect
 import json
+import re
 
 from patchright.async_api import Page
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -28,6 +29,7 @@ from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import session as session_module
 from linkedin_mcp_server.scraping import LinkedInExtractor
 from linkedin_mcp_server.scraping.fields import COMPANY_SECTIONS, PERSON_SECTIONS
+from linkedin_mcp_server.scraping.text import CONTACT_DECLINE_BUTTON
 from linkedin_mcp_server.server import create_mcp_server
 
 from .support.policy_trace import (
@@ -762,6 +764,18 @@ async def _messaging_submission_scenario(outcome: str) -> dict[str, Any]:
                 if outcome == "sent"
                 else PlaywrightTimeoutError("same-node transition not observed"),
             )
+            if outcome != "sent":
+                buttons = page.declare_locator("button", "buttons")
+                page.declare_derived(
+                    buttons.semantic_id,
+                    f"filter:{CONTACT_DECLINE_BUTTON['en']}/{re.RegexFlag(re.UNICODE)}",
+                    "contact-decline",
+                )
+                page.declare_derived("contact-decline", "first", "contact-decline-1")
+                page.script(
+                    "contact-decline-1.wait_for",
+                    PlaywrightTimeoutError("no contact info dialog"),
+                )
             _script_confirmation_cleanup(page)
 
     extractor = _extractor(page)
@@ -964,6 +978,27 @@ async def _invalid_message_scenario(message: str, label: str) -> dict[str, Any]:
                 "message_case": label,
                 "confirm_send": True,
             },
+        },
+        result,
+    )
+
+
+async def _easy_apply_invalid_job_scenario() -> dict[str, Any]:
+    """An invalid job id is refused before any page: the browser-free path of easy_apply."""
+    recorder = TraceRecorder("easy_apply__invalid_job", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context("easy_apply", "message"):
+            result = await extractor.easy_apply(
+                "not-a-job", _MULTILINE_TEXT, confirm_submit=True
+            )
+    page.assert_clean()
+    return recorder.trace(
+        {
+            "method": "easy_apply",
+            "arguments": {"job_id": "not-a-job", "confirm_submit": True},
         },
         result,
     )
@@ -1175,6 +1210,7 @@ TOOL_FACADE_METHODS = {
     "send_message",
     "reply_in_thread",
     "message_job_poster",
+    "easy_apply",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -1240,6 +1276,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         ),
         "reply-group.json": await _thread_reply_group_scenario(),
         "job-poster-dry-run.json": await _job_poster_dry_run_scenario(),
+        "easy-apply-invalid-job.json": await _easy_apply_invalid_job_scenario(),
         "connect.json": await _connect_scenario(),
         "get-my-profile.json": await _get_my_profile_scenario(),
         "sidebar-profiles.json": await _sidebar_scenario(),
