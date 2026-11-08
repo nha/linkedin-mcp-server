@@ -112,7 +112,7 @@ class TestRefuseAnInvalidMessage:
     def test_thread_reply_refuses_controls_on_the_thread_url(self):
         assert refuse_an_invalid_thread_reply("2-abc==", "a\tb") == (
             message_action_result(
-                "https://www.linkedin.com/messaging/thread/2-abc==/",
+                "https://www.linkedin.com/messaging/thread/2-abc%3D%3D/",
                 "invalid_message",
                 "Message must not contain control characters other than line breaks.",
             )

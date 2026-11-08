@@ -437,6 +437,7 @@ class ScriptedPage:
         expression: str,
         *,
         arg: Any = None,
+        polling: Any = None,
         timeout: int | None = None,
     ) -> None:
         operation = semantic_program_id(expression)
@@ -613,8 +614,8 @@ def semantic_program_id(program: str) -> str:
         ("__linkedinMcpComposer =", "message_composer_owner"),
         ("document.execCommand('insertText'", "message_composer_write"),
         ("return pinned.editor.innerText", "message_composer_preview"),
+        (")(arg).found.length > 0", "thread_participant_ready"),
         ("found.length === 0 ? 'none'", "thread_participant"),
-        (".some(anchor => !anchor.closest('form'))", "thread_participant_ready"),
         (
             'main.querySelectorAll(\'a[href*="/messaging/compose/"], a[href*="/in/"]\').length > 0',
             "job_poster_target_ready",

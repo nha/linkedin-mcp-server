@@ -279,14 +279,12 @@ _JOB_POSTER_TARGET_READY_JS = (
 )
 _JOB_POSTER_TARGET_TIMEOUT_MS = 10_000
 
-_THREAD_PARTICIPANT_READY_JS = r"""() => {
-    // The messaging page is an application shell: the thread, and with it the
-    // participant links, render a moment after the route is reached.
-    const root = document.querySelector('main') || document.body;
-    return Array.from(root.querySelectorAll('a[href*="/in/"]'))
-        .some(anchor => !anchor.closest('form'));
-}"""
-_THREAD_PARTICIPANT_TIMEOUT_MS = 10_000
+
+# A ceiling, not a delay: the wait ends on the first participant link, so only a
+# slowly hydrating page pays it. 10 s cut off an InMail whose sender link came late.
+_THREAD_PARTICIPANT_TIMEOUT_MS = 30_000
+# The ready check runs the whole participant scan: poll it, not on every frame.
+_THREAD_PARTICIPANT_POLL_MS = 250
 
 _THREAD_PARTICIPANT_JS = r"""(arg) => {
     // Who the open conversation is with. Two sources, in order:
@@ -355,6 +353,12 @@ _THREAD_PARTICIPANT_JS = r"""(arg) => {
     };
 }"""
 
+# Ready once the page links a profile that is not the viewer's own: an early link
+# to the viewer alone ended the wait with nobody to reply to (/code-review of #11).
+_THREAD_PARTICIPANT_READY_JS = (
+    "(arg) => (" + _THREAD_PARTICIPANT_JS + ")(arg).found.length > 0"
+)
+
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
     // Text is compared after collapsing whitespace: a message with line breaks
     // renders as separate blocks in the editor and in the sent bubble, so the
@@ -413,7 +417,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
                 url.hash ||
                 !(
                     url.pathname === '/messaging/compose/' ||
-                    /^\/messaging\/thread\/[A-Za-z0-9_=-]+\/$/.test(url.pathname)
+                    /^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/.test(url.pathname)
                 )
             ) {
                 return null;
@@ -935,7 +939,7 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
                 url.hash ||
                 !(
                     url.pathname === '/messaging/compose/' ||
-                    /^\/messaging\/thread\/[A-Za-z0-9_=-]+\/$/.test(url.pathname)
+                    /^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/.test(url.pathname)
                 )
             ) {
                 return null;
@@ -1192,10 +1196,23 @@ _PROFILE_PATH_RE = re.compile(r"^/in/[^/?#]+/$")
 # A thread id is base64url and keeps its padding literally. Measured live:
 # /messaging/thread/2-ZDBkMjZiY2Ut...XzEwMA==/ is what LinkedIn redirects an
 # existing conversation to, and rejecting it stopped every send to a member
-# the account had already written to. Only '=' is added: '%' would readmit an
-# encoded slash and let one path pose as another. The id identifies nobody on
-# its own, and the recipient is proven by the composer rather than this path.
-_MESSAGE_THREAD_PATH_RE = re.compile(r"^/messaging/thread/[A-Za-z0-9_=-]+/$")
+# the account had already written to. Only '=' is added, raw or escaped as
+# '%3D' (how a reply opens it, as get_conversation does): any other '%' would
+# readmit an encoded slash and let one path pose as another. The two JS copies
+# in messageRoute match this pattern. The id identifies nobody on its own, and
+# the recipient is proven by the composer rather than this path.
+_MESSAGE_THREAD_PATH_RE = re.compile(r"^/messaging/thread/(?:[A-Za-z0-9_=-]|%3[Dd])+/$")
+_ESCAPED_PADDING_RE = re.compile(r"%3[Dd]")
+
+
+def _same_thread_route(left: str, right: str) -> bool:
+    """Two thread URLs or paths that differ only in ``=`` against ``%3D``.
+
+    Only that escape: any other one (``%2F``) still makes a different route.
+    """
+    return _ESCAPED_PADDING_RE.sub("=", left) == _ESCAPED_PADDING_RE.sub("=", right)
+
+
 _PROFILE_URN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 
@@ -1833,7 +1850,7 @@ class MessageSender:
             await self._navigator._navigate_to_page(self._page.url)
         finally:
             gate.current_tool.reset(token)
-        if urlparse(self._page.url).path != route:
+        if not _same_thread_route(urlparse(self._page.url).path, route):
             return None
         deadline = time.monotonic() + _THREAD_READ_SECONDS
         while True:
@@ -1988,13 +2005,26 @@ class MessageSender:
         await self._navigator._navigate_to_page(thread_url)
         expected_route = self._page.url
         parsed = _safe_linkedin_url(expected_route)
-        if parsed is None or parsed.path != urlparse(thread_url).path or parsed.query:
+        # LinkedIn may show the padding as ``==`` or ``%3D%3D``; nothing else.
+        if (
+            parsed is None
+            or not _same_thread_route(parsed.path, urlparse(thread_url).path)
+            or parsed.query
+        ):
             return contracts.message_action_result(
                 expected_route,
                 "thread_unavailable",
                 "LinkedIn did not open the requested conversation.",
             )
 
+        if not own_name:
+            # Without it the viewer's own sender link passes as the participant.
+            return contracts.message_action_result(
+                expected_route,
+                "recipient_resolution_failed",
+                "The viewer's own name could not be read, so their sender links "
+                "cannot be told from the participant's.",
+            )
         participant, detail = await self._read_thread_participant(own_name)
         if participant is None:
             return contracts.message_action_result(
@@ -2013,6 +2043,8 @@ class MessageSender:
             target,
             message,
             expected_route=expected_route,
+            # Exact, as the composer's own route checks are: a route that changes
+            # after the pin fails closed with this reason, not a generic one.
             url_is_safe=lambda url: url == expected_route,
             confirm_send=confirm_send,
             preview=preview,
@@ -2162,6 +2194,8 @@ class MessageSender:
         try:
             await self._page.wait_for_function(
                 _THREAD_PARTICIPANT_READY_JS,
+                arg={"ownName": own_name},
+                polling=_THREAD_PARTICIPANT_POLL_MS,
                 timeout=_THREAD_PARTICIPANT_TIMEOUT_MS,
             )
         except PlaywrightTimeoutError:

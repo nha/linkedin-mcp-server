@@ -12,6 +12,7 @@ import asyncio
 import os
 from collections.abc import Sequence
 import time
+from urllib.parse import quote
 from unittest.mock import AsyncMock, patch
 
 import anyio
@@ -961,7 +962,8 @@ class TestComposerRecipientDom:
 
 MULTILINE_MESSAGE = "First line\n\nSecond paragraph\nthird line"
 THREAD_ID = "2-abc_DEF-123=="
-THREAD_URL = f"https://www.linkedin.com/messaging/thread/{THREAD_ID}/"
+# Escaped, as the reply and get_conversation open it: the padding is %3D%3D.
+THREAD_URL = f"https://www.linkedin.com/messaging/thread/{quote(THREAD_ID, safe='')}/"
 
 
 def thread_page(
@@ -1370,6 +1372,89 @@ class TestReplyInThreadDom:
         assert result["status"] == "sent"
         assert result["recipient_profile_path"] == PROFILE_PATH
 
+    async def test_unanswered_inmail_with_only_yes_no_buttons_resolves_its_sender(
+        self, dom_page
+    ):
+        """A recruiter's InMail, 2026-11-08: the header names the sender with no
+        link, the profile card links nowhere, and the one /in/ link is the sender
+        link, which renders late with the Yes/No quick replies under the message."""
+        html = thread_page(
+            ID_TRANSITION_SEND_JS,
+            participants=[],
+            # the viewer's own link is there first: the wait must not end on it
+            senders=[("/in/ACoAAviewer/", "View Nicolas\u2019 profile")],
+        ).replace(
+            '<header id="participants">',
+            '<header id="participants">Alex Doe Consultant at Example Corp'
+            "<div>Alex Doe 3rd Verified recruiter</div>",
+        )
+        late = f"""<script>setTimeout(() => {{
+          document.getElementById('thread').insertAdjacentHTML('afterbegin',
+            '<div data-view-name="message-list-item" data-event-urn="inmail">'
+            + '<a href="https://www.linkedin.com{PROFILE_PATH}">'
+            + 'Open Alex Doe\u2019s profile</a>'
+            + '<span class="message-unit">Hi Nicolas</span>'
+            + '<button>Yes, interested...</button>'
+            + '<button>No thanks...</button></div>');
+        }}, 800)</script>"""
+        result = await reply(dom_page, html.replace("</body>", late + "</body>"))
+
+        assert result["status"] == "sent"
+        assert result["recipient_profile_path"] == PROFILE_PATH
+
+    async def test_a_thread_shown_with_raw_padding_is_the_same_thread(self, dom_page):
+        """The reply opens %3D%3D; LinkedIn may show it as ==. Same route."""
+        await dom_page.goto(THREAD_URL.replace("%3D", "="))
+        await dom_page.set_content(
+            thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
+        )
+        sender = _sender(dom_page)
+        sender._own_name = "Nicolas HA"
+        with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
+            result = await sender.reply_in_thread(
+                THREAD_ID, MULTILINE_MESSAGE, confirm_send=False
+            )
+
+        assert result["status"] == "confirmation_required"
+        assert result["recipient_profile_path"] == PROFILE_PATH
+
+    async def test_an_escape_other_than_padding_is_another_route(self, dom_page):
+        """Only %3D equals its character: %2D is not taken for '-' (nor %2F for '/')."""
+        await dom_page.goto("https://www.linkedin.com/messaging/thread/2-a%2D/")
+        await dom_page.set_content(
+            thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
+        )
+        with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
+            result = await _sender(dom_page).reply_in_thread(
+                "2-a-", MULTILINE_MESSAGE, confirm_send=False
+            )
+
+        assert result["status"] == "thread_unavailable"
+
+    def test_only_escaped_padding_widens_the_thread_route(self):
+        """'%3D' is admitted, never '%2F': and both JS messageRoute copies agree."""
+        from linkedin_mcp_server.scraping import message_sender as ms
+
+        assert ms._MESSAGE_THREAD_PATH_RE.fullmatch("/messaging/thread/2-a%3D%3D/")
+        assert not ms._MESSAGE_THREAD_PATH_RE.fullmatch("/messaging/thread/2-a%2F/")
+        js = r"/^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/"
+        assert js in ms._MESSAGE_COMPOSER_INSPECT_JS
+        assert js in ms._MESSAGE_COMPOSER_PINNED_JS
+
+    async def test_an_unknown_own_name_fails_closed(self, dom_page):
+        """With no name the viewer's own sender link would pass as the participant."""
+        result = await reply(
+            dom_page,
+            thread_page(
+                ID_TRANSITION_SEND_JS,
+                participants=[],
+                senders=[("/in/ACoAAviewer/", "View Nicolas’ profile")],
+            ),
+            own_name="",
+        )
+
+        assert result["status"] == "recipient_resolution_failed"
+
     async def test_a_namesake_sender_fails_closed_instead_of_guessing(self, dom_page):
         result = await reply(
             dom_page,
@@ -1578,7 +1663,7 @@ LOCAL_BUBBLE_SEND_JS = """
   });
 """
 
-# Ruby's InMail: Send empties the composer and opens the dialog; the reply leaves on
+# A recruiter's InMail: Send empties the composer and opens the dialog; the reply leaves on
 # an answer, and a page load behind the dialog loses it.
 CONTACT_DIALOG_SEND_JS = """
   document.getElementById('send').addEventListener('click', event => {
