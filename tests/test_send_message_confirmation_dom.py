@@ -1060,6 +1060,28 @@ class TestReadOwnName:
         html = f"<title>{title}</title><main><h2>Nicolas HA</h2></main>"
         assert await own_name_of(dom_page, html) == "Nicolas HA"
 
+    async def test_a_heading_rendered_late_beats_the_title(self, dom_page):
+        html = (
+            "<title>Someone Else | LinkedIn</title><main></main><script>"
+            "setTimeout(() => {document.querySelector('main').innerHTML ="
+            " '<h1>Nicolas HA</h1>';}, 300);</script>"
+        )
+        assert await own_name_of(dom_page, html) == "Nicolas HA"
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Nicolas HA - Freelance Engineer | LinkedIn",
+            "Nicolas HA \u2013 Freelance | LinkedIn",
+            "Nicolas HA | Feed | LinkedIn",
+            "LinkedIn | Nicolas HA",
+            "Nicolas HA | LinkedIn extra",
+        ],
+    )
+    async def test_any_other_title_format_names_nobody(self, dom_page, title):
+        html = f"<title>{title}</title><main></main>"
+        assert await own_name_of(dom_page, html) == ""
+
     async def test_a_title_off_a_profile_page_names_nobody(self, dom_page):
         html = "<title>Security Verification | LinkedIn</title><main></main>"
         url = "https://www.linkedin.com/checkpoint/challenge/"

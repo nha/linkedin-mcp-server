@@ -182,20 +182,24 @@ _ATTACHMENT_CHIPS_JS = """
 }
 """
 
-# The profile heading, else the title LinkedIn serves with the profile
-# ("(3) Name | LinkedIn"), only on a /in/ page: on 2026-11-08 /in/me/ showed no
-# `main h1` when this read it, and every reply failed closed.
-_OWN_NAME_JS = r"""() => {
-    const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+# The viewer's name on their own profile: the heading, waited for first.
+_OWN_NAME_HEADING_JS = r"""() => {
     const heading = document.querySelector('main h1');
-    const text = heading && normalize(heading.innerText || heading.textContent);
-    if (text) return text;
-    if (!/^\/in\/[^/]+\/?$/.test(location.pathname)) return '';
-    const title = normalize(document.title)
-        .match(/^(?:\(\d+\+?\)\s*)?(.+?)\s*\|\s*LinkedIn$/);
-    return title ? title[1] : '';
+    return ((heading && (heading.innerText || heading.textContent)) || '')
+        .replace(/\s+/g, ' ').trim();
 }"""
-# How long the profile may take to show the name before it counts as unknown.
+# Read only once the heading never showed (on 2026-11-08 /in/me/ showed none and
+# every reply failed closed): the title LinkedIn serves with a profile,
+# "(3) Name | LinkedIn", on a /in/ page. Text is the signal here, so the format
+# is assumed: any other (a headline, another segment, another brand order)
+# returns "", which the caller refuses.
+_OWN_NAME_TITLE_JS = r"""() => {
+    if (!/^\/in\/[^/]+\/?$/.test(location.pathname)) return '';
+    const title = (document.title || '').replace(/\s+/g, ' ').trim()
+        .match(/^(?:\(\d+\+?\) )?([^|]+?) \| LinkedIn$/);
+    return title && !/ [-\u2013\u2014] /.test(title[1]) ? title[1] : '';
+}"""
+# How long the profile may take to show its heading before the title is read.
 _OWN_NAME_WAIT_MS = 5000
 
 _JOB_POSTER_TARGET_JS = r"""() => {
@@ -2183,11 +2187,19 @@ class MessageSender:
                 await self._navigator._navigate_to_page(
                     "https://www.linkedin.com/in/me/"
                 )
-                # The heading renders after load; wait for it, not a snapshot.
-                handle = await self._page.wait_for_function(
-                    _OWN_NAME_JS, timeout=_OWN_NAME_WAIT_MS
-                )
-                name = await handle.json_value()
+                try:
+                    # The heading renders after load; wait for it, not a snapshot.
+                    handle = await self._page.wait_for_function(
+                        _OWN_NAME_HEADING_JS, timeout=_OWN_NAME_WAIT_MS
+                    )
+                    name = await handle.json_value()
+                except PlaywrightTimeoutError:
+                    name = await self._page.evaluate(_OWN_NAME_TITLE_JS)
+                if not name:
+                    logger.info(
+                        "No heading or profile title names the viewer at %s",
+                        self._page.url,
+                    )
             except RateLimitError:
                 # A gate refusal or a limit stops the reply, never an unknown
                 # name that weakens the participant check (/code-review of #8).
