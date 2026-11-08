@@ -1090,6 +1090,11 @@ class TestReadOwnName:
         url = "https://www.linkedin.com/checkpoint/challenge/"
         assert await own_name_of(dom_page, html, url=url) == ""
 
+    async def test_a_heading_off_a_profile_page_names_nobody(self, dom_page):
+        html = "<main><h1>Let's do a quick security check</h1></main>"
+        url = "https://www.linkedin.com/checkpoint/challenge/"
+        assert await own_name_of(dom_page, html, url=url) == ""
+
     async def test_an_unknown_name_is_read_again_next_time(self, dom_page):
         await dom_page.goto(PROFILE_URL)
         await dom_page.set_content("<main></main>")

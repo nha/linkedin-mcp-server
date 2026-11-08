@@ -70,7 +70,7 @@
       "call": "reply_in_thread",
       "kind": "wait_for_function",
       "operation": "profile_display_name",
-      "program_digest": "9437935375a3",
+      "program_digest": "dc198a2f038e",
       "section": "message",
       "timeout_ms": 5000
     },
@@ -78,7 +78,7 @@
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "profile_display_name",
-      "program_digest": "9437935375a3",
+      "program_digest": "dc198a2f038e",
       "section": "message"
     },
     {

@@ -182,8 +182,10 @@ _ATTACHMENT_CHIPS_JS = """
 }
 """
 
-# The viewer's name on their own profile: the heading, waited for first.
+# The viewer's name on their own profile: the heading, waited for first. Only on
+# a /in/ page: a checkpoint's h1 would be cached as the viewer's name.
 _OWN_NAME_HEADING_JS = r"""() => {
+    if (!/^\/in\/[^/]+\/?$/.test(location.pathname)) return '';
     const heading = document.querySelector('main h1');
     return ((heading && (heading.innerText || heading.textContent)) || '')
         .replace(/\s+/g, ' ').trim();
