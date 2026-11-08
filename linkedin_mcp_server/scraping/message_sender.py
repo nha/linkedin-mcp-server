@@ -182,11 +182,21 @@ _ATTACHMENT_CHIPS_JS = """
 }
 """
 
+# The profile heading, else the title LinkedIn serves with the profile
+# ("(3) Name | LinkedIn"), only on a /in/ page: on 2026-11-08 /in/me/ showed no
+# `main h1` when this read it, and every reply failed closed.
 _OWN_NAME_JS = r"""() => {
+    const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
     const heading = document.querySelector('main h1');
-    return ((heading && (heading.innerText || heading.textContent)) || '')
-        .replace(/\s+/g, ' ').trim();
+    const text = heading && normalize(heading.innerText || heading.textContent);
+    if (text) return text;
+    if (!/^\/in\/[^/]+\/?$/.test(location.pathname)) return '';
+    const title = normalize(document.title)
+        .match(/^(?:\(\d+\+?\)\s*)?(.+?)\s*\|\s*LinkedIn$/);
+    return title ? title[1] : '';
 }"""
+# How long the profile may take to show the name before it counts as unknown.
+_OWN_NAME_WAIT_MS = 5000
 
 _JOB_POSTER_TARGET_JS = r"""() => {
     // The hiring-team card on a job page: one compose link whose recipient
@@ -2165,23 +2175,32 @@ class MessageSender:
 
         Sender links in a conversation carry the viewer's name, and the name is
         the one locale-independent way to tell those links from the other
-        participant's. Unknown (no heading) resolves to "", which drops nothing.
+        participant's. Unknown resolves to "", which the caller refuses, and is
+        not kept: the next reply reads the profile again.
         """
-        if self._own_name is None:
+        if not self._own_name:
             try:
                 await self._navigator._navigate_to_page(
                     "https://www.linkedin.com/in/me/"
                 )
-                name = await self._page.evaluate(_OWN_NAME_JS)
+                # The heading renders after load; wait for it, not a snapshot.
+                handle = await self._page.wait_for_function(
+                    _OWN_NAME_JS, timeout=_OWN_NAME_WAIT_MS
+                )
+                name = await handle.json_value()
             except RateLimitError:
                 # A gate refusal or a limit stops the reply, never an unknown
                 # name that weakens the participant check (/code-review of #8).
                 raise
             except Exception:
-                logger.debug("Could not resolve the viewer's own name", exc_info=True)
+                logger.warning(
+                    "Could not read the viewer's own name at %s",
+                    self._page.url,
+                    exc_info=True,
+                )
                 name = ""
-            self._own_name = name if isinstance(name, str) else ""
-        return self._own_name
+            self._own_name = name if isinstance(name, str) and name else None
+        return self._own_name or ""
 
     async def _read_thread_participant(
         self, own_name: str

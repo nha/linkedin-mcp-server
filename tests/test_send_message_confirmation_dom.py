@@ -21,6 +21,7 @@ from patchright.async_api import async_playwright
 
 from linkedin_mcp_server.core import gate
 from linkedin_mcp_server.core.exceptions import RateLimitError
+from linkedin_mcp_server.scraping import message_sender as ms
 from linkedin_mcp_server.scraping.message_sender import (
     MessageSender,
     _ProfileMessageTarget,
@@ -1020,6 +1021,63 @@ async def reply(
         )
 
 
+PROFILE_URL = "https://www.linkedin.com/in/nicolas-ha/"
+
+
+async def own_name_of(page, html: str, *, url: str = PROFILE_URL) -> str:
+    await page.goto(url)
+    await page.set_content(html)
+    sender = _sender(page)
+    with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
+        return await sender._read_own_name()
+
+
+class TestReadOwnName:
+    """The viewer's name, read on /in/me/, that tells their sender links apart."""
+
+    @pytest.fixture(autouse=True)
+    def short_wait(self, monkeypatch):
+        monkeypatch.setattr(ms, "_OWN_NAME_WAIT_MS", 1000)
+
+    async def test_the_profile_heading_names_the_viewer(self, dom_page):
+        html = "<title>x</title><main><h1> Nicolas\n HA </h1></main>"
+        assert await own_name_of(dom_page, html) == "Nicolas HA"
+
+    async def test_a_heading_rendered_after_load_is_waited_for(self, dom_page):
+        html = (
+            "<main></main><script>setTimeout(() => {"
+            "document.querySelector('main').innerHTML = '<h1>Nicolas HA</h1>';"
+            "}, 300);</script>"
+        )
+        assert await own_name_of(dom_page, html) == "Nicolas HA"
+
+    @pytest.mark.parametrize(
+        "title", ["Nicolas HA | LinkedIn", "(3) Nicolas HA | LinkedIn"]
+    )
+    async def test_without_a_heading_the_profile_title_names_the_viewer(
+        self, dom_page, title
+    ):
+        html = f"<title>{title}</title><main><h2>Nicolas HA</h2></main>"
+        assert await own_name_of(dom_page, html) == "Nicolas HA"
+
+    async def test_a_title_off_a_profile_page_names_nobody(self, dom_page):
+        html = "<title>Security Verification | LinkedIn</title><main></main>"
+        url = "https://www.linkedin.com/checkpoint/challenge/"
+        assert await own_name_of(dom_page, html, url=url) == ""
+
+    async def test_an_unknown_name_is_read_again_next_time(self, dom_page):
+        await dom_page.goto(PROFILE_URL)
+        await dom_page.set_content("<main></main>")
+        sender = _sender(dom_page)
+        navigate = AsyncMock()
+        with patch.object(PageNavigator, "_navigate_to_page", navigate):
+            assert await sender._read_own_name() == ""
+            await dom_page.set_content("<main><h1>Nicolas HA</h1></main>")
+            assert await sender._read_own_name() == "Nicolas HA"
+            assert await sender._read_own_name() == "Nicolas HA"
+        assert navigate.await_count == 2
+
+
 class TestSendConfirmationDom:
     @pytest.mark.parametrize(
         "message",
@@ -1441,8 +1499,9 @@ class TestReplyInThreadDom:
         assert js in ms._MESSAGE_COMPOSER_INSPECT_JS
         assert js in ms._MESSAGE_COMPOSER_PINNED_JS
 
-    async def test_an_unknown_own_name_fails_closed(self, dom_page):
+    async def test_an_unknown_own_name_fails_closed(self, dom_page, monkeypatch):
         """With no name the viewer's own sender link would pass as the participant."""
+        monkeypatch.setattr(ms, "_OWN_NAME_WAIT_MS", 200)
         result = await reply(
             dom_page,
             thread_page(
