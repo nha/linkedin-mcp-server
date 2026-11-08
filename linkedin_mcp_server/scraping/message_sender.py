@@ -197,7 +197,11 @@ _OWN_NAME_TITLE_JS = r"""() => {
     if (!/^\/in\/[^/]+\/?$/.test(location.pathname)) return '';
     const title = (document.title || '').replace(/\s+/g, ' ').trim()
         .match(/^(?:\(\d+\+?\) )?([^|]+?) \| LinkedIn$/);
-    return title && !/ [-\u2013\u2014] /.test(title[1]) ? title[1] : '';
+    // A name is letters, apostrophes, dots, hyphens and spaces: a headline
+    // after a dash, a middle dot, a comma or a colon is refused.
+    const name = title ? title[1] : '';
+    return /^[\p{L}\p{M}][\p{L}\p{M}'\u2019. -]*$/u.test(name)
+        && !/ - /.test(name) ? name : '';
 }"""
 # How long the profile may take to show its heading before the title is read.
 _OWN_NAME_WAIT_MS = 5000
@@ -2016,6 +2020,15 @@ class MessageSender:
             )
 
         own_name = await self._read_own_name()
+        if not own_name:
+            # Without it the viewer's own sender link passes as the participant;
+            # refused before the thread load, which would spend a gated page.
+            return contracts.message_action_result(
+                thread_url,
+                "recipient_resolution_failed",
+                "The viewer's own name could not be read, so their sender links "
+                "cannot be told from the participant's.",
+            )
         await self._navigator._navigate_to_page(thread_url)
         expected_route = self._page.url
         parsed = _safe_linkedin_url(expected_route)
@@ -2031,14 +2044,6 @@ class MessageSender:
                 "LinkedIn did not open the requested conversation.",
             )
 
-        if not own_name:
-            # Without it the viewer's own sender link passes as the participant.
-            return contracts.message_action_result(
-                expected_route,
-                "recipient_resolution_failed",
-                "The viewer's own name could not be read, so their sender links "
-                "cannot be told from the participant's.",
-            )
         participant, detail = await self._read_thread_participant(own_name)
         if participant is None:
             return contracts.message_action_result(
@@ -2179,40 +2184,46 @@ class MessageSender:
 
         Sender links in a conversation carry the viewer's name, and the name is
         the one locale-independent way to tell those links from the other
-        participant's. Unknown resolves to "", which the caller refuses, and is
-        not kept: the next reply reads the profile again.
+        participant's. Unknown resolves to "", which the caller refuses. Only a
+        name from the heading is kept; the next reply reads the profile again.
         """
-        if not self._own_name:
+        if self._own_name:
+            return self._own_name
+        name: object = ""
+        try:
+            await self._navigator._navigate_to_page("https://www.linkedin.com/in/me/")
             try:
-                await self._navigator._navigate_to_page(
-                    "https://www.linkedin.com/in/me/"
+                # The heading renders after load; wait for it, not a snapshot.
+                await self._page.wait_for_function(
+                    _OWN_NAME_HEADING_JS, timeout=_OWN_NAME_WAIT_MS
                 )
-                try:
-                    # The heading renders after load; wait for it, not a snapshot.
-                    await self._page.wait_for_function(
-                        _OWN_NAME_HEADING_JS, timeout=_OWN_NAME_WAIT_MS
-                    )
-                    name = await self._page.evaluate(_OWN_NAME_HEADING_JS)
-                except PlaywrightTimeoutError:
-                    name = await self._page.evaluate(_OWN_NAME_TITLE_JS)
-                if not name:
-                    logger.info(
-                        "No heading or profile title names the viewer at %s",
-                        self._page.url,
-                    )
-            except RateLimitError:
-                # A gate refusal or a limit stops the reply, never an unknown
-                # name that weakens the participant check (/code-review of #8).
-                raise
-            except Exception:
-                logger.warning(
-                    "Could not read the viewer's own name at %s",
-                    self._page.url,
-                    exc_info=True,
-                )
-                name = ""
-            self._own_name = name if isinstance(name, str) and name else None
-        return self._own_name or ""
+                name = await self._page.evaluate(_OWN_NAME_HEADING_JS)
+            except PlaywrightTimeoutError:
+                pass
+            if isinstance(name, str) and name:
+                # Only the heading is kept: a title read is tried again next
+                # reply, so the heading wins once it renders.
+                self._own_name = name
+                return name
+            name = await self._page.evaluate(_OWN_NAME_TITLE_JS)
+            logger.info(
+                "The viewer's name came from the profile title at %s"
+                if isinstance(name, str) and name
+                else "No heading or profile title names the viewer at %s",
+                self._page.url,
+            )
+        except RateLimitError:
+            # A gate refusal or a limit stops the reply, never an unknown
+            # name that weakens the participant check (/code-review of #8).
+            raise
+        except Exception:
+            logger.warning(
+                "Could not read the viewer's own name at %s",
+                self._page.url,
+                exc_info=True,
+            )
+            name = ""
+        return name if isinstance(name, str) else ""
 
     async def _read_thread_participant(
         self, own_name: str

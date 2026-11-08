@@ -1076,6 +1076,9 @@ class TestReadOwnName:
             "Nicolas HA | Feed | LinkedIn",
             "LinkedIn | Nicolas HA",
             "Nicolas HA | LinkedIn extra",
+            "Nicolas HA \u00b7 Engineer | LinkedIn",
+            "Nicolas HA, PhD | LinkedIn",
+            "Nicolas HA: Engineer | LinkedIn",
         ],
     )
     async def test_any_other_title_format_names_nobody(self, dom_page, title):
@@ -1094,6 +1097,18 @@ class TestReadOwnName:
         navigate = AsyncMock()
         with patch.object(PageNavigator, "_navigate_to_page", navigate):
             assert await sender._read_own_name() == ""
+            await dom_page.set_content("<main><h1>Nicolas HA</h1></main>")
+            assert await sender._read_own_name() == "Nicolas HA"
+            assert await sender._read_own_name() == "Nicolas HA"
+        assert navigate.await_count == 2
+
+    async def test_a_name_from_the_title_is_read_again_next_time(self, dom_page):
+        await dom_page.goto(PROFILE_URL)
+        await dom_page.set_content("<title>Old Name | LinkedIn</title><main></main>")
+        sender = _sender(dom_page)
+        navigate = AsyncMock()
+        with patch.object(PageNavigator, "_navigate_to_page", navigate):
+            assert await sender._read_own_name() == "Old Name"
             await dom_page.set_content("<main><h1>Nicolas HA</h1></main>")
             assert await sender._read_own_name() == "Nicolas HA"
             assert await sender._read_own_name() == "Nicolas HA"
@@ -1504,8 +1519,10 @@ class TestReplyInThreadDom:
         await dom_page.set_content(
             thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
         )
+        sender = _sender(dom_page)
+        sender._own_name = "Nicolas HA"
         with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
-            result = await _sender(dom_page).reply_in_thread(
+            result = await sender.reply_in_thread(
                 "2-a-", MULTILINE_MESSAGE, confirm_send=False
             )
 
@@ -1595,6 +1612,7 @@ class TestReplyInThreadDom:
             thread_page(ID_TRANSITION_SEND_JS, participants=[PROFILE_PATH])
         )
         sender = _sender(dom_page)
+        sender._own_name = "Nicolas HA"
         with patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock):
             result = await sender.reply_in_thread(
                 THREAD_ID, MULTILINE_MESSAGE, confirm_send=True
