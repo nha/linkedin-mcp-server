@@ -12,6 +12,7 @@ import asyncio
 import os
 from collections.abc import Sequence
 import time
+from urllib.parse import quote
 from unittest.mock import AsyncMock, patch
 
 import anyio
@@ -961,7 +962,8 @@ class TestComposerRecipientDom:
 
 MULTILINE_MESSAGE = "First line\n\nSecond paragraph\nthird line"
 THREAD_ID = "2-abc_DEF-123=="
-THREAD_URL = f"https://www.linkedin.com/messaging/thread/{THREAD_ID}/"
+# Escaped, as the reply and get_conversation open it: the padding is %3D%3D.
+THREAD_URL = f"https://www.linkedin.com/messaging/thread/{quote(THREAD_ID, safe='')}/"
 
 
 def thread_page(
@@ -1369,6 +1371,32 @@ class TestReplyInThreadDom:
 
         assert result["status"] == "sent"
         assert result["recipient_profile_path"] == PROFILE_PATH
+
+    async def test_unanswered_inmail_with_only_yes_no_buttons_resolves_its_sender(
+        self, dom_page
+    ):
+        """Ruby Ryder's InMail, 2026-11-08: the header names her with no link, the
+        profile card links nowhere, and the one /in/ link is her sender link,
+        which renders late with the Yes/No quick replies under her message."""
+        html = thread_page(ID_TRANSITION_SEND_JS, participants=[]).replace(
+            '<header id="participants">',
+            '<header id="participants">Ruby Ryder Consultant at EPM Scientific'
+            "<div>Ruby Ryder (She/Her) 3rd Verified recruiter</div>",
+        )
+        late = f"""<script>setTimeout(() => {{
+          document.getElementById('thread').insertAdjacentHTML('afterbegin',
+            '<div data-view-name="message-list-item" data-event-urn="inmail">'
+            + '<a href="https://www.linkedin.com{PROFILE_PATH}">'
+            + 'Open Ruby Ryder\u2019s profile</a>'
+            + '<span class="message-unit">Hi Nicolas</span>'
+            + '<button>Yes, interested...</button>'
+            + '<button>No thanks...</button></div>');
+        }}, 800)</script>"""
+        result = await reply(dom_page, html.replace("</body>", late + "</body>"))
+
+        assert result["status"] == "sent"
+        assert result["recipient_profile_path"] == PROFILE_PATH
+        assert result["recipient_name"] == "Open Ruby Ryder\u2019s profile"
 
     async def test_a_namesake_sender_fails_closed_instead_of_guessing(self, dom_page):
         result = await reply(

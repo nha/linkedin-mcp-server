@@ -25,6 +25,7 @@ from linkedin_mcp_server.scraping.conversations import (
     strip_select_conversation_prefix,
 )
 from linkedin_mcp_server.scraping.link_metadata import Reference
+from linkedin_mcp_server.scraping.message_sender import MessageSender
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -626,6 +627,50 @@ class TestGetInbox:
 
 
 class TestGetConversation:
+    async def test_reply_opens_the_url_get_conversation_opens(self, mock_page):
+        """One URL for one thread: ``==`` escaped, as get_conversation opens it.
+
+        On 2026-11-08 the reply opened Ruby Ryder's thread with ``==`` raw and
+        the read opened ``%3D%3D``, so the read could not vouch for the page
+        the reply saw.
+        """
+        thread_id = "2-ZjFiNDc3OWYtNWM2MS00YTc5LWEwOTctZmVlZDJjOTgxZDNiXzEwMA=="
+        reader = _reader(mock_page)
+        read_nav = AsyncMock()
+        with (
+            patch.object(PageNavigator, "_navigate_to_page", read_nav),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value=_root("Hello!"),
+            ),
+        ):
+            await reader.get_conversation(thread_id=thread_id)
+
+        class Opened(Exception):
+            pass
+
+        reply_nav = AsyncMock(side_effect=Opened)
+        session = ScrapingSession(mock_page)
+        sender = MessageSender(session, PageNavigator(session))
+        sender._own_name = "Nicolas HA"
+        with (
+            patch.object(PageNavigator, "_navigate_to_page", reply_nav),
+            pytest.raises(Opened),
+        ):
+            await sender.reply_in_thread(thread_id, "Hi Ruby", confirm_send=True)
+
+        escaped = (
+            "https://www.linkedin.com/messaging/thread/"
+            "2-ZjFiNDc3OWYtNWM2MS00YTc5LWEwOTctZmVlZDJjOTgxZDNiXzEwMA%3D%3D/"
+        )
+        assert reply_nav.await_args.args == read_nav.await_args.args == (escaped,)
+
     async def test_returns_conversation_by_thread_id(self, mock_page):
         reader = _reader(mock_page)
         nav_mock = AsyncMock()

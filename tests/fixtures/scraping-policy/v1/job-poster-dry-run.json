@@ -163,7 +163,7 @@
       "call": "message_job_poster",
       "kind": "wait_for_function",
       "operation": "message_composer_ready",
-      "program_digest": "78385026b279",
+      "program_digest": "d052c16ff66d",
       "section": "message",
       "timeout_ms": null
     },
@@ -175,7 +175,7 @@
       "call": "message_job_poster",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "73c96da898b8",
+      "program_digest": "0f720f9a630f",
       "section": "message"
     }
   ],

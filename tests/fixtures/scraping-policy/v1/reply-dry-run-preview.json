@@ -82,7 +82,7 @@
     {
       "call": "reply_in_thread",
       "extra": {
-        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -93,14 +93,14 @@
       "call": "reply_in_thread",
       "kind": "navigate",
       "landed_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
-      "requested_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "requested_url": "https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
       "section": "message",
       "timeout_ms": 30000,
       "wait_until": "domcontentloaded"
     },
     {
       "call": "reply_in_thread",
-      "description": "goto https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+      "description": "goto https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
       "kind": "boundary.stabilize",
       "result": null,
       "section": "message"
@@ -108,7 +108,7 @@
     {
       "call": "reply_in_thread",
       "extra": {
-        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread==/",
+        "target_url": "https://www.linkedin.com/messaging/thread/2-policy-thread%3D%3D/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -135,7 +135,7 @@
       "operation": "thread_participant_ready",
       "program_digest": "b695b8949e78",
       "section": "message",
-      "timeout_ms": 10000
+      "timeout_ms": 30000
     },
     {
       "arg": {
@@ -169,7 +169,7 @@
       "call": "reply_in_thread",
       "kind": "wait_for_function",
       "operation": "message_composer_ready",
-      "program_digest": "78385026b279",
+      "program_digest": "d052c16ff66d",
       "section": "message",
       "timeout_ms": null
     },
@@ -181,7 +181,7 @@
       "call": "reply_in_thread",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "73c96da898b8",
+      "program_digest": "0f720f9a630f",
       "section": "message"
     },
     {
@@ -195,7 +195,7 @@
       "call": "reply_in_thread",
       "kind": "evaluate_handle",
       "operation": "message_composer_owner",
-      "program_digest": "564d3ba5dd79",
+      "program_digest": "82a39bbd4e5b",
       "section": "message"
     },
     {
@@ -215,7 +215,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_write",
-      "program_digest": "c65f511e8494",
+      "program_digest": "974b8118dec8",
       "section": "message"
     },
     {
@@ -228,7 +228,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_preview",
-      "program_digest": "f262bf64daf8",
+      "program_digest": "36482995ee0f",
       "section": "message"
     },
     {

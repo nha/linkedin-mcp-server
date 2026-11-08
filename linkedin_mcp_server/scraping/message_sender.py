@@ -9,7 +9,7 @@ import os
 import re
 import time
 from typing import Any, Literal
-from urllib.parse import ParseResult, parse_qs, urljoin, urlparse
+from urllib.parse import ParseResult, parse_qs, unquote, urljoin, urlparse
 
 import anyio
 import anyio.lowlevel
@@ -286,7 +286,11 @@ _THREAD_PARTICIPANT_READY_JS = r"""() => {
     return Array.from(root.querySelectorAll('a[href*="/in/"]'))
         .some(anchor => !anchor.closest('form'));
 }"""
-_THREAD_PARTICIPANT_TIMEOUT_MS = 10_000
+# 30 s, not 10: the wait ends as soon as a profile link renders, so only a slow
+# page pays it. On 2026-11-08 LinkedIn hydrated slowly (search labels missed their
+# 10 s twice) and Ruby Ryder's InMail reply read "0 profile anchors" at 10 s,
+# while get_conversation, which waits and scrolls longer, found her sender link.
+_THREAD_PARTICIPANT_TIMEOUT_MS = 30_000
 
 _THREAD_PARTICIPANT_JS = r"""(arg) => {
     // Who the open conversation is with. Two sources, in order:
@@ -413,7 +417,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
                 url.hash ||
                 !(
                     url.pathname === '/messaging/compose/' ||
-                    /^\/messaging\/thread\/[A-Za-z0-9_=-]+\/$/.test(url.pathname)
+                    /^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/.test(url.pathname)
                 )
             ) {
                 return null;
@@ -935,7 +939,7 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
                 url.hash ||
                 !(
                     url.pathname === '/messaging/compose/' ||
-                    /^\/messaging\/thread\/[A-Za-z0-9_=-]+\/$/.test(url.pathname)
+                    /^\/messaging\/thread\/(?:[A-Za-z0-9_=-]|%3[Dd])+\/$/.test(url.pathname)
                 )
             ) {
                 return null;
@@ -1192,10 +1196,12 @@ _PROFILE_PATH_RE = re.compile(r"^/in/[^/?#]+/$")
 # A thread id is base64url and keeps its padding literally. Measured live:
 # /messaging/thread/2-ZDBkMjZiY2Ut...XzEwMA==/ is what LinkedIn redirects an
 # existing conversation to, and rejecting it stopped every send to a member
-# the account had already written to. Only '=' is added: '%' would readmit an
-# encoded slash and let one path pose as another. The id identifies nobody on
-# its own, and the recipient is proven by the composer rather than this path.
-_MESSAGE_THREAD_PATH_RE = re.compile(r"^/messaging/thread/[A-Za-z0-9_=-]+/$")
+# the account had already written to. Only '=' is added, raw or escaped as
+# '%3D' (how a reply opens it, as get_conversation does): any other '%' would
+# readmit an encoded slash and let one path pose as another. The two JS copies
+# in messageRoute match this pattern. The id identifies nobody on its own, and
+# the recipient is proven by the composer rather than this path.
+_MESSAGE_THREAD_PATH_RE = re.compile(r"^/messaging/thread/(?:[A-Za-z0-9_=-]|%3[Dd])+/$")
 _PROFILE_URN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 
@@ -1988,7 +1994,13 @@ class MessageSender:
         await self._navigator._navigate_to_page(thread_url)
         expected_route = self._page.url
         parsed = _safe_linkedin_url(expected_route)
-        if parsed is None or parsed.path != urlparse(thread_url).path or parsed.query:
+        # Compared unescaped: the id is one segment either way, and LinkedIn may
+        # show its padding as ``==`` or ``%3D%3D``.
+        if (
+            parsed is None
+            or unquote(parsed.path) != unquote(urlparse(thread_url).path)
+            or parsed.query
+        ):
             return contracts.message_action_result(
                 expected_route,
                 "thread_unavailable",
