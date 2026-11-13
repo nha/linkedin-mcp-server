@@ -185,7 +185,7 @@ async def test_a_slow_gate_answer_is_read(monkeypatch):
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, *_):
+        def log_message(self, format: str, *args: Any) -> None:
             pass
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowGate)
