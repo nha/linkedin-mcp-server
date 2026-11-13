@@ -68,7 +68,16 @@ def _gate_url() -> str:
     )
 
 
-def _ask(op: str, body: dict[str, Any], timeout: float = 5.0) -> dict[str, Any] | None:
+#: How long one ask waits for the gate's answer. Measured 2026-11-13 on the Mac it
+#: runs on: the dashboard answered ``load`` in 30 s+, 7.4 s and 3.2 s, ``check`` in
+#: 5.07 s, so the old 5 s read most answers as none and refused two approved sends.
+#: Still fails closed: past this, no answer is a refusal.
+ASK_TIMEOUT_SECONDS = 20.0
+
+
+def _ask(
+    op: str, body: dict[str, Any], timeout: float = ASK_TIMEOUT_SECONDS
+) -> dict[str, Any] | None:
     """The gate's JSON answer to *op*, or None when it does not answer."""
     request = urllib.request.Request(
         _gate_url() + op,

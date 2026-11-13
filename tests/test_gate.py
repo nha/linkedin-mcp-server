@@ -167,6 +167,42 @@ async def test_a_cut_answer_is_no_answer(monkeypatch):
         await gate.load(_Page(), "https://www.linkedin.com/feed/", source="login")
 
 
+async def test_a_slow_gate_answer_is_read(monkeypatch):
+    """A gate that answers after 6 s (the dashboard took up to 30 s on
+    2026-11-13) still lets the load through: 5 s used to read it as none."""
+    import http.server
+    import threading
+    import time
+
+    class SlowGate(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers["content-length"]))
+            time.sleep(6)
+            body = json.dumps({"allow": True}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowGate)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv(
+            "LINKEDIN_GATE_URL",
+            f"http://127.0.0.1:{server.server_port}/dashboard/linkedin/",
+        )
+        page = _Page()
+        await gate.load(page, "https://www.linkedin.com/feed/", source="login")
+        assert page.visits == ["https://www.linkedin.com/feed/"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 async def test_a_send_forgets_the_cached_inbox(monkeypatch):
     asked = _gate(monkeypatch)
     mcp = FastMCP("test")
